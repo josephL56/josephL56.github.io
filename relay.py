@@ -1,201 +1,2143 @@
-"""
-relay.py - tiny local web server for Pseudo-ATC. Python 3 standard library only, nothing to install.
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Pseudo-ATC</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#0b0814; --bg2:#130d24; --panel:#150f26; --panel2:#1c1433; --line:#2d2349; --line2:#43336b;
+    --ink:#efeaff; --mute:#a095c4; --accent:#8b5cf6; --accent2:#b79cff; --accent3:#6d3df0;
+    --atc:#1d1438; --pilot:#171127; --warn:#f0b65a; --glow:rgba(139,92,246,.35);
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin:0; color:var(--ink); font:15px/1.5 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; min-height:100vh;
+         background: radial-gradient(1100px 520px at 18% -8%, rgba(139,92,246,.30), transparent 60%),
+                     radial-gradient(900px 480px at 100% 0%, rgba(109,61,240,.20), transparent 55%), var(--bg); background-attachment: fixed; }
+  header { padding:14px 22px; display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center;
+           background: linear-gradient(180deg, rgba(34,22,66,.85), rgba(15,10,28,.75)); backdrop-filter: blur(8px);
+           border-bottom:1px solid var(--line); box-shadow: 0 8px 30px -18px var(--glow); position:sticky; top:0; z-index:5; }
+  h1 { font-size:19px; margin:0 14px 0 0; letter-spacing:.3px; font-weight:700;
+       background: linear-gradient(90deg,#fff,var(--accent2) 60%,var(--accent)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .pill { color:var(--mute); font-size:13px; padding:4px 11px; border-radius:999px; background:rgba(139,92,246,.10); border:1px solid var(--line); }
+  .pill b { color:var(--ink); font-weight:600; }
+  main { display:grid; grid-template-columns: minmax(0,1.7fr) minmax(300px,1fr); gap:18px; padding:20px; max-width:1240px; margin:0 auto; align-items:start; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding:14px; } header { padding:12px 14px; } }
+  section { background: linear-gradient(180deg, rgba(28,20,51,.78), rgba(17,12,31,.82)); border:1px solid var(--line); border-radius:18px;
+                   box-shadow: 0 18px 50px -28px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.04); }
+  #mapcard canvas { display:block; width:100%; border-radius:12px; border:1px solid var(--line); background:#0e0a1c; touch-action:none; }
+  #map { height:250px; cursor:grab; } #map:active { cursor:grabbing; } #prof { height:120px; }
+  .maphead { display:flex; align-items:center; justify-content:space-between; margin:0 0 6px; } .maphead:not(:first-child) { margin-top:12px; }
+  .mapbtns { display:flex; gap:6px; } .mapbtns button { padding:3px 11px; font-size:13px; min-width:34px; } .mapnote { color:var(--mute); font-size:12px; }
+  .c2head { display:flex; align-items:center; gap:10px; padding:8px 0 4px; border-top:1px solid rgba(255,255,255,.05); margin-top:4px; }
+  .rcv { padding:4px 14px; font-size:12px; font-weight:700; letter-spacing:.8px; border-radius:8px; } .rcv[aria-pressed=true] { background:linear-gradient(135deg,#34d399,#10b981); color:#04130d; border-color:#34d399; box-shadow:0 0 14px -2px rgba(52,211,153,.7); }
+  .c2body { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .lcd { font:700 30px ui-monospace, Consolas, monospace; letter-spacing:2px; padding:6px 14px; border-radius:10px; background:#07110e; color:#6ee7b7; border:1px solid #1d3b32; text-shadow:0 0 10px rgba(110,231,183,.55); min-width:150px; text-align:center; }
+  .dials { display:flex; gap:14px; } .dialwrap { display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .dial { width:64px; height:64px; cursor:grab; touch-action:none; outline-offset:3px; } .dial:active { cursor:grabbing; }
+  .dbody { fill:#241a45; stroke:var(--line2); stroke-width:2; } .dtick { stroke:var(--accent2); stroke-width:4; stroke-linecap:round; } .dhub { fill:#150f26; stroke:var(--line2); stroke-width:1.5; }
+  .dial g { transform-origin:40px 40px; } .dl { font-size:11px; color:var(--mute); letter-spacing:.8px; }
+  .stepbtns { display:flex; gap:4px; } .stepbtns button { padding:0 9px; min-width:28px; line-height:22px; }
+  .atislist { display:flex; flex-direction:column; gap:4px; margin-top:4px; } .atislist button { display:flex; justify-content:space-between; gap:8px; text-align:left; padding:5px 10px; font-size:13px; border-radius:10px; }
+  .atislist button .f { font-family:ui-monospace, Consolas, monospace; color:#6ee7b7; }
+  #atcwin { display:flex; flex-direction:column; height:calc(100vh - 110px); min-height:560px; overflow:hidden; }
+  #titlebar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 18px; border-bottom:1px solid var(--line);
+              background: linear-gradient(135deg, rgba(109,61,240,.34), rgba(28,20,51,.4)); }
+  #whoName { font-size:20px; font-weight:700; letter-spacing:.2px; }
+  .tb-freq { display:flex; align-items:baseline; gap:8px; }
+  #freqBig { font:600 30px/1 ui-monospace, "Cascadia Mono", Consolas, monospace; color:#fff; letter-spacing:1px; text-shadow:0 0 14px var(--glow); }
+  .mhz { color:var(--mute); font-size:12px; }
+  .badge { font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--line2); color:var(--mute); }
+  .badge.ok { color:#9be7b0; border-color:rgba(155,231,176,.5); background:rgba(155,231,176,.08); }
+  .badge.warn { color:var(--warn); border-color:rgba(240,182,90,.55); background:rgba(240,182,90,.08); }
+  #log { flex:1; min-height:120px; overflow:auto; padding:16px; scrollbar-width:thin; scrollbar-color: var(--line2) transparent; }
+  #opts { border-top:1px solid var(--line); padding:10px 14px 4px; background:rgba(8,5,18,.35); max-height:46%; overflow:auto; }
+  .opts-head { display:flex; justify-content:space-between; align-items:baseline; font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--accent2); font-weight:700; margin-bottom:4px; }
+  .opts-head .hint { text-transform:none; letter-spacing:0; font-weight:400; }
+  ol.options { list-style:none; margin:0; padding:0; display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:4px 10px; }
+  ol.options li.sep { grid-column:1 / -1; font-size:11px; text-transform:uppercase; letter-spacing:.8px; color:var(--mute); margin:6px 0 0; }
+  button.opt { width:100%; display:flex; align-items:center; gap:10px; text-align:left; border-radius:10px; padding:8px 10px; border-color:transparent; background:transparent; }
+  button.opt:hover:not(:disabled) { background:rgba(139,92,246,.22); border-color:var(--line2); box-shadow:none; }
+  button.opt .num { flex:0 0 24px; height:24px; border-radius:7px; display:grid; place-items:center; font:600 13px ui-monospace, Consolas, monospace; background:rgba(139,92,246,.28); color:#fff; border:1px solid var(--line2); }
+  button.opt .num.none { background:transparent; border-color:transparent; }
+  #sendform { padding:10px 14px 14px; background:rgba(8,5,18,.35); }
+  .card { padding:14px; border-radius:18px; background:linear-gradient(180deg, rgba(28,20,51,.78), rgba(17,12,31,.82)); border:1px solid var(--line); }
+  .radio-row { display:flex; align-items:baseline; gap:10px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.05); } .radio-row:last-child { border-bottom:0; }
+  .rl { flex:0 0 46px; font-size:12px; letter-spacing:.8px; color:var(--accent2); font-weight:700; }
+  .radio-row b { flex:1; font:600 15px ui-monospace, Consolas, monospace; } .rs { color:var(--mute); font-size:12px; }
+  .setup-btn { margin-left:auto; }
+  #log::-webkit-scrollbar, aside::-webkit-scrollbar { width:8px; } #log::-webkit-scrollbar-thumb { background:var(--line2); border-radius:8px; }
+  .line { padding:10px 14px; margin:0 0 10px; border-radius:14px; border:1px solid var(--line); }
+  .line .who { display:block; font-size:12px; letter-spacing:.4px; text-transform:uppercase; color:var(--accent2); margin-bottom:3px; font-weight:600; }
+  .atc { background: linear-gradient(135deg, rgba(109,61,240,.30), rgba(29,20,56,.9)); border-color: rgba(139,92,246,.45); box-shadow: 0 0 24px -14px var(--glow); }
+  .pilot { background: var(--pilot); border-color: var(--line); margin-left:34px; }
+  .pilot .who { color: var(--mute); }
+  .sys { color:var(--mute); font-size:13px; padding:2px 12px; border:0; margin-bottom:8px; }
+  aside { display:flex; flex-direction:column; gap:14px; background:none; border:0; box-shadow:none; }
+  aside details#setup { border:1px solid var(--line); border-radius:18px; padding:14px; background:linear-gradient(180deg, rgba(28,20,51,.78), rgba(17,12,31,.82)); }
+  @media (max-width: 860px) { #atcwin { height:auto; min-height:0; } #log { height:46vh; flex:none; } }
+  button { font:inherit; font-size:14px; padding:8px 14px; border-radius:999px; border:1px solid var(--line2); background: rgba(139,92,246,.10); color:var(--ink); cursor:pointer;
+           transition: background .15s, border-color .15s, box-shadow .15s, transform .05s; }
+  button:hover:not(:disabled) { border-color: var(--accent); background: rgba(139,92,246,.24); box-shadow: 0 0 18px -6px var(--glow); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity:.38; cursor:not-allowed; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--accent2); outline-offset:2px; }
+  button.primary { background: linear-gradient(135deg, var(--accent), var(--accent3)); border-color: transparent; color:#fff; font-weight:600; box-shadow: 0 8px 22px -10px var(--glow); }
+  button.primary:hover:not(:disabled) { background: linear-gradient(135deg, #9d75ff, #7c4dff); box-shadow: 0 10px 26px -8px var(--glow); }
+  #sendform { display:flex; gap:8px; } #sendform input { flex:1; }
+  input[type=text], input[type=password], input[type=number], select { font:inherit; padding:8px 12px; border-radius:12px; border:1px solid var(--line2); background: rgba(8,5,18,.7); color:var(--ink); min-width:0; }
+  input::placeholder { color:#7d72a0; }
+  input[type=file] { color:var(--mute); font-size:13px; max-width:100%; }
+  input[type=file]::file-selector-button { font:inherit; font-size:13px; margin-right:10px; padding:6px 12px; border-radius:999px; border:1px solid var(--line2); background:rgba(139,92,246,.14); color:var(--ink); cursor:pointer; }
+  input[type=checkbox], input[type=radio] { accent-color: var(--accent); width:16px; height:16px; }
+  select option { background:#150f26; color:var(--ink); }
+  details { border-top:1px solid var(--line); padding-top:12px; } summary { cursor:pointer; font-weight:700; letter-spacing:.3px; color:var(--accent2); }
+  .step { margin:14px 0 4px; font-weight:700; font-size:13px; letter-spacing:.8px; text-transform:uppercase; color:var(--accent2); }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:7px 0; }
+  .hint { color:var(--mute); font-size:13px; } code { color:var(--accent2); }
+  pre { background:rgba(8,5,18,.8); border:1px solid var(--line); padding:10px; border-radius:12px; overflow:auto; font-size:12px; }
+  label.inline { display:flex; gap:7px; align-items:center; max-width:100%; min-width:0; }
+  label.inline select { flex:1 1 auto; min-width:0; max-width:100%; text-overflow:ellipsis; }
+  select { max-width:100%; text-overflow:ellipsis; }
+  .row > label.inline:has(select) { flex:1 1 100%; }
+  .tabs { display:flex; gap:6px; margin:12px 0 10px; padding:4px; border-radius:999px; background:rgba(8,5,18,.6); border:1px solid var(--line); width:fit-content; }
+  .tab { border:0; background:transparent; color:var(--mute); padding:7px 16px; box-shadow:none; }
+  .tab:hover:not(:disabled) { background:rgba(139,92,246,.16); box-shadow:none; }
+  .tab[aria-selected=true] { background: linear-gradient(135deg, var(--accent), var(--accent3)); color:#fff; font-weight:600; box-shadow: 0 6px 18px -8px var(--glow); }
+  [role=tabpanel][hidden] { display:none; }
+  #boot { margin:14px 20px; padding:12px 16px; border-radius:14px; border:1px solid var(--warn); color:var(--warn); background:rgba(240,182,90,.08); }
+  #boot[hidden] { display:none; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pseudo-ATC</h1>
+  <span class="pill">Sim: <b id="simStatus">not connected</b></span>
+  <span class="pill">Phase: <b id="phase">-</b></span>
+  <span id="who" hidden></span>
+  <button id="setupToggle" type="button" class="setup-btn" aria-expanded="true" aria-controls="setup">Setup</button>
+</header>
+<div id="boot" role="alert">Starting... If this message stays on screen, your browser is not running this page's script (a company policy, a preview window, or an add-on can block it). Open the file straight from its folder in Edge or Chrome, and tell me whether this message is still here. If a line starting with "Script error" appears below, send it to me.</div>
+<main>
+  <section id="atcwin" aria-label="ATC window">
+    <div id="titlebar">
+      <div class="tb-who"><div id="whoName">No controller</div><div id="whoSub" class="hint">Choose a mode in Setup to begin</div></div>
+      <div class="tb-freq"><span id="freqBig">---.---</span><span class="mhz">MHz</span><span id="tuneBadge" class="badge">-</span></div>
+    </div>
+    <div id="log" aria-live="polite" aria-label="Radio log"></div>
+    <div id="opts">
+      <div class="opts-head"><span>Your options</span><span class="hint">press 1-9, or type below</span></div>
+      <ol id="buttons" class="options" aria-label="Your options"></ol>
+    </div>
+    <form id="sendform"><input id="msg" type="text" placeholder="Or type to the controller" autocomplete="off" aria-label="Message to controller"><button class="primary" type="submit">Send</button></form>
+  </section>
+  <aside>
+    <div class="card" id="radios" aria-label="Radios">
+      <div class="radio-row"><span class="rl">COM1</span><b id="com1">-</b><span class="rs">your radio</span></div>
+      <div class="c2head"><span class="rl">COM2</span><button type="button" id="rcv" class="rcv" aria-pressed="false">RCV</button><span class="rs" id="c2state">receiver off</span></div>
+      <div class="c2body">
+        <div id="c2disp" class="lcd" aria-live="off">---.---</div>
+        <div class="dials">
+          <div class="dialwrap"><svg id="dialMhz" class="dial" viewBox="0 0 80 80" role="slider" tabindex="0" aria-label="COM2 MHz" aria-valuemin="118" aria-valuemax="136"><circle cx="40" cy="40" r="36" class="dbody"/><g id="dialMhzK"><line x1="40" y1="8" x2="40" y2="22" class="dtick"/></g><circle cx="40" cy="40" r="8" class="dhub"/></svg><div class="dl">MHz</div><div class="stepbtns"><button type="button" id="mhzDn" aria-label="MHz down">&minus;</button><button type="button" id="mhzUp" aria-label="MHz up">+</button></div></div>
+          <div class="dialwrap"><svg id="dialKhz" class="dial" viewBox="0 0 80 80" role="slider" tabindex="0" aria-label="COM2 kHz" aria-valuemin="0" aria-valuemax="975"><circle cx="40" cy="40" r="36" class="dbody"/><g id="dialKhzK"><line x1="40" y1="8" x2="40" y2="22" class="dtick"/></g><circle cx="40" cy="40" r="8" class="dhub"/></svg><div class="dl">kHz</div><div class="stepbtns"><button type="button" id="khzDn" aria-label="kHz down">&minus;</button><button type="button" id="khzUp" aria-label="kHz up">+</button></div></div>
+        </div>
+      </div>
+      <div class="hint" id="atisListHead">ATIS stations (tap to tune COM2)</div>
+      <div id="atisList" class="atislist"></div>
+    </div>
+<div class="card" id="mapcard" aria-label="Map and altitude profile">
+      <div class="maphead"><b>Map</b><span class="mapbtns"><button type="button" id="mapIn" aria-label="Zoom in">+</button><button type="button" id="mapOut" aria-label="Zoom out">&minus;</button><button type="button" id="mapFit">Fit</button></span></div>
+      <canvas id="map" role="img" aria-label="Map of the aircraft position and route"></canvas>
+      <div class="maphead"><b>Altitude profile</b><span class="mapnote" id="profNote"></span></div>
+      <canvas id="prof" role="img" aria-label="Altitude against distance to destination"></canvas>
+      <div class="hint">Scroll to zoom, drag to pan, double-click or Fit to see the whole route again.</div>
+    </div>
+<details open id="setup">
+      <summary>Setup and connection</summary>
+      <div class="tabs" role="tablist" aria-label="Mode"><button type="button" class="tab" id="tabLive" role="tab" aria-selected="true" aria-controls="panelLive">Live (X-Plane)</button><button type="button" class="tab" id="tabDemo" role="tab" aria-selected="false" aria-controls="panelDemo">Demo flight</button></div>
+      <div id="panelLive" role="tabpanel" aria-labelledby="tabLive">
+      <div class="step">1. Airports</div>
+      <div class="row">
+        <input id="files" type="file" multiple aria-label="apt.dat files">
+      </div>
+      <div class="hint">Pick your X-Plane apt.dat: <code>Resources/default scenery/default apt dat/Earth nav data/apt.dat</code> (and any Custom Scenery ones). It covers the whole world, so you load it once.</div>
+      <div class="row"><button id="useSample" type="button">Use built-in test airports</button><span id="airportInfo" class="hint"></span></div>
 
-What it does
-  1. Serves the Pseudo-ATC page at http://localhost:8080
-  2. Fetches real METARs for the page (aviationweather.gov, then NOAA tgftp as a backup)
-     at http://localhost:8080/metar/KSJC
-Because the page and the weather both come from this one server, the browser has nothing to block,
-so "Real METAR from the internet" and "Test METAR fetch" in the page work.
+      <div class="step">2. Connect to the sim</div>
+      <div class="row"><input id="host" type="text" value="localhost" size="10" aria-label="Host"><input id="port" type="number" value="8086" style="width:84px" aria-label="Port"><button id="connect" type="button" class="primary">Connect to X-Plane 12</button><button id="check" type="button">Check datarefs</button></div>
+      <pre id="report" hidden></pre>
+      <div class="step">3. Flight plan</div>
+      <div class="row"><input id="dest" type="text" placeholder="Destination ICAO" size="14" aria-label="Destination ICAO"><input id="rwy" type="text" placeholder="Runway (optional)" size="14" aria-label="Landing runway"><input id="gate" type="number" value="60" style="width:70px" aria-label="Approach service distance in NM"><span class="hint">NM gate</span><button id="setDest" type="button">Set</button></div>
 
-How to run
-  python relay.py            (uses port 8080)
-  python relay.py 9000       (uses another port)
+      <div class="row"><label class="inline">Flight plan <input id="fms" type="file" accept=".fms" aria-label="Flight plan .fms file"></label></div>
+      <div class="hint">Loading your saved .fms sets the destination, runway, STAR and approach in one go (X-Plane's Output/FMS plans folder).</div>
 
-Where it finds the page, in this order
-  - pseudo_atc.html or index.html in the same folder as this script
-  - otherwise it downloads it from your GitHub page (PAGE_URLS below)
+      </div>
+      <div id="panelDemo" role="tabpanel" aria-labelledby="tabDemo" hidden>
+      <div class="step">Flight rules</div>
+      <div class="row" role="radiogroup" aria-label="Flight rules"><label class="inline"><input type="radio" name="rules" value="IFR"> IFR</label><label class="inline"><input type="radio" name="rules" value="VFR"> VFR</label><span id="rulesHint" class="hint">Pick IFR or VFR to enable the demos.</span></div>
+      <div class="step">Airports</div>
+      <div class="row"><label class="inline">Scenery <select id="scenery" aria-label="Demo scenery"><option value="cal">California: San Jose to Los Angeles (real airports)</option><option value="zzz">Fictional test airports</option></select></label></div>
+      <div class="hint" id="sceneryHint">California positions come from public data; runways and frequencies are approximate and only for this demo.</div>
+      <div class="row"><label class="inline">Departure <select id="demoFrom" aria-label="Departure airport"></select></label></div>
+      <div class="row"><label class="inline">Destination <select id="demoTo" aria-label="Destination airport"></select></label></div>
+      <div class="hint">Departure is used by the full flight and the parked demo. Destination is used by the full flight and the arrival demo; each option shows its distance and typical flight time. <span id="flenHint"></span></div>
+      <div class="row"><button id="demoFull" type="button" class="primary">Demo: full flight</button><button id="demoArrival" type="button">Demo: arrival only</button><button id="demoParked" type="button">Demo: parked</button></div>
+      <div class="row"><label class="inline">speed <select id="speed"><option value="1">x1 (real time)</option><option value="5">x5</option><option value="20">x20</option><option value="60" selected>x60</option><option value="120">x120</option><option value="300">x300</option></select></label><label class="inline">or custom x <input id="speedCustom" type="number" min="0.1" step="any" style="width:80px" aria-label="Custom speed multiplier"></label><button id="pause" type="button">Pause</button></div>
+      <div class="row"><label class="inline"><input id="autoReq" type="checkbox" checked> Script my radio calls (uncheck to press the buttons yourself; the demo then waits for your requests)</label></div>
+      <div class="hint">Uses fictional airports; no sim needed. The speed can be changed while a demo runs. Time of the demo flight shows next to "Sim" at the top.</div>
+      <div class="step">Real weather for the demo (from fetch_metar.py)</div>
+      <div class="row"><textarea id="metarPaste" rows="4" placeholder="Paste the output of fetch_metar.py here (or just the METAR lines), then press Load." aria-label="Pasted METAR data" style="flex:1;min-width:0;font:12px monospace;padding:8px 12px;border-radius:12px;border:1px solid var(--line2);background:rgba(8,5,18,.7);color:var(--ink)"></textarea></div>
+      <div class="row"><button id="metarLoad" type="button">Load pasted METARs</button><button id="metarClear" type="button">Clear</button></div>
+      <div class="hint" id="metarPasteStatus">Loading switches the weather source to real METAR. The next demo you start then uses the real wind at the departure airport to pick the departure runway, the destination wind to pick the landing runway, and the real wind, visibility and QNH in the ATIS and radio calls. Airports you did not paste fall back to the demo's built-in weather.</div>
 
-Open the address it prints. On the same Wi-Fi, other devices can use the "network" address it prints.
-Press Ctrl+C (or stop the script in your app) to quit.
-"""
-import os
-import re
-import socket
-import sys
-import time
-import threading
-import urllib.request
-import urllib.error
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+      </div>
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8080
-HERE = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
-LOCAL_NAMES = ["pseudo_atc.html", "index.html"]
-PAGE_URLS = ["https://josephL56.github.io/", "https://josephL56.github.io/pseudo_atc.html"]
-PAGE_MARKER = "Pseudo-ATC"          # a downloaded page must contain this, so a plain README page is not mistaken for the app
-CACHE_S = 60                        # reuse a fetched METAR for this long
-TIMEOUT_S = 10
-HEADERS = {"User-Agent": "pseudo-atc-relay/1.0 (personal flight sim project)"}
-ICAO_RE = re.compile(r"^[A-Za-z0-9]{4}$")
-METAR_RE = re.compile(r'\b(?:METAR |SPECI )?[A-Z0-9]{4} \d{6}Z [^"\n<\\]+')
+      <div class="step">Options</div>
+      <div class="row"><label class="inline"><input id="autotune" type="checkbox" checked> Auto-tune COM1 to the controller</label></div>
+      <div class="row"><label class="inline"><input id="staticwx" type="checkbox" checked> Static weather (ATIS on request at any distance)</label></div>
+      <div class="hint">Untick for real weather: the sim only gives weather at your aircraft, so an ATIS is only offered within 40 NM. Either way you hear the ATIS automatically at your departure airport and when you come within 40 NM of your destination.</div>
+      <div class="row"><label class="inline">Weather source <select id="wxsrc" aria-label="Weather source"><option value="sim">Sim weather at my aircraft</option><option value="metar">Real METAR from the internet</option></select></label><button id="metarTest" type="button">Test METAR fetch</button></div>
+      <div class="row"><input id="metarUrl" type="text" placeholder="Optional own METAR URL, use {ICAO} where the code goes" aria-label="Custom METAR URL" style="flex:1;min-width:0"></div>
+      <div class="hint" id="metarStatus">Real METAR gives ATIS, landing approval and runway choice the weather at that airport instead of at your aircraft. Use it only when X-Plane is also on real weather, otherwise the two will disagree. Falls back to sim weather if a fetch fails.</div>
+      <div class="row"><label class="inline"><input id="speak" type="checkbox"> Speak replies</label><label class="inline"><input id="radiofx" type="checkbox" checked> Radio click and static</label></div>
+      <div class="row"><select id="voice" aria-label="Voice"><option value="">Default voice</option></select><label class="inline">speed <input id="vrate" type="number" min="0.5" max="2" step="0.05" value="1.05" style="width:70px" aria-label="Voice speed"></label><label class="inline">pitch <input id="vpitch" type="number" min="0.5" max="1.5" step="0.05" value="0.95" style="width:70px" aria-label="Voice pitch"></label><button id="voiceTest" type="button">Test voice</button></div>
+      <div class="hint">In Edge on Windows, voices marked "Natural" sound far better than the old default. They need an internet connection. The page cannot filter the browser voice itself, so the radio effect is a squelch click before each call and a burst of static after it.</div>
+      <div class="row"><input id="apikey" type="password" placeholder="Claude API key (optional)" size="26" autocomplete="off" aria-label="Claude API key"><label class="inline"><input id="remember" type="checkbox"> remember on this PC</label></div>
+      <div class="row"><input id="model" type="text" value="claude-sonnet-5-5" size="22" aria-label="Model"><span id="claudeState" class="hint">Template wording (no key)</span></div>
+      <div class="hint">Without a key you get plain template wording. With one, the key stays in this page and goes only to api.anthropic.com. Practice only, never for real navigation.</div>
+    </details>
+  </aside>
+</main>
+<script>
+window.addEventListener("error", function (e) {
+  var b = document.getElementById("boot"); if (!b) return;
+  b.hidden = false; b.appendChild(document.createElement("br"));
+  b.appendChild(document.createTextNode("Script error: " + e.message + " (line " + e.lineno + ")"));
+});
+</script>
+<script>
+// Pseudo-ATC core logic (browser port of the Python version). No DOM access in this file.
+// ==== CORE START
+"use strict";
 
-_cache = {}                         # ICAO -> (time, raw, source)
-_lock = threading.Lock()
-_page = {"html": None, "src": None}
+const R_NM = 3440.065;
+const rad = d => d * Math.PI / 180;
+const deg = r => r * 180 / Math.PI;
+const mod = (x, n) => ((x % n) + n) % n;
+
+function haversineNm(lat1, lon1, lat2, lon2) {
+  const p1 = rad(lat1), p2 = rad(lat2), dp = p2 - p1, dl = rad(lon2 - lon1);
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const p1 = rad(lat1), p2 = rad(lat2), dl = rad(lon2 - lon1);
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return mod(deg(Math.atan2(y, x)), 360);
+}
+function offsetPoint(lat, lon, brg, distNm) {
+  const d = distNm / R_NM, b = rad(brg), p1 = rad(lat), l1 = rad(lon);
+  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+  const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1),
+                             Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+  return [deg(p2), mod(deg(l2) + 540, 360) - 180];
+}
+const angleDiff = (a, b) => mod(a - b + 180, 360) - 180;
+// along: NM out along the extended centreline; cross: positive = LEFT of the inbound course
+function alongCross(lat, lon, tLat, tLon, course) {
+  const d = haversineNm(tLat, tLon, lat, lon);
+  if (d < 1e-6) return [0, 0];
+  const rel = rad(angleDiff(bearingDeg(tLat, tLon, lat, lon), course + 180));
+  return [d * Math.cos(rel), d * Math.sin(rel)];
+}
+function hdgStr(x) { const n = Math.round(mod(x, 360)) % 360; return String(n === 0 ? 360 : n).padStart(3, "0"); }
+
+// ------------------------------------------------------------------ sim state helpers
+const REQUIRED = ["lat", "lon", "elev_m", "agl_m", "gs_ms", "mag_psi", "true_psi", "on_ground"];
+const nn = v => v !== null && v !== undefined && !Number.isNaN(v);
+const altFt = s => nn(s.elev_m) ? s.elev_m * 3.28084 : null;
+const aglFt = s => nn(s.agl_m) ? s.agl_m * 3.28084 : null;
+const gsKt = s => nn(s.gs_ms) ? s.gs_ms * 1.943844 : null;
+const grounded = s => !!(s.on_ground && s.on_ground > 0.5);
+const stateReady = s => REQUIRED.every(k => nn(s[k]));
+
+// Dataref candidates: [name, scale, versions]. NAMES ARE FROM MEMORY AND UNVERIFIED
+// (weather ones especially). The page's "Check datarefs" button shows what resolves.
+const FIELDS = {
+  lat: [["sim/flightmodel/position/latitude", 1]],
+  lon: [["sim/flightmodel/position/longitude", 1]],
+  elev_m: [["sim/flightmodel/position/elevation", 1]],
+  agl_m: [["sim/flightmodel/position/y_agl", 1]],
+  ias_kt: [["sim/cockpit2/gauges/indicators/airspeed_kts_pilot", 1]],
+  gs_ms: [["sim/flightmodel/position/groundspeed", 1]],
+  mag_psi: [["sim/flightmodel/position/mag_psi", 1]],
+  true_psi: [["sim/flightmodel/position/true_psi", 1]],
+  vs_fpm: [["sim/cockpit2/gauges/indicators/vvi_fpm_pilot", 1]],
+  on_ground: [["sim/flightmodel/failures/onground_any", 1]],
+  gear: [["sim/cockpit/switches/gear_handle_status", 1]],
+  flaps: [["sim/cockpit2/controls/flap_ratio", 1]],
+  com1_hz: [["sim/cockpit/radios/com1_freq_hz", 1]],
+  com2_hz: [["sim/cockpit/radios/com2_freq_hz", 1]],
+  zulu_sec: [["sim/time/zulu_time_sec", 1]],
+  wind_kt: [["sim/weather/aircraft/wind_speed_kts[0]", 1], ["sim/weather/wind_speed_kt[0]", 1]],
+  wind_dir_true: [["sim/weather/aircraft/wind_direction_degt[0]", 1], ["sim/weather/wind_direction_degt[0]", 1]],
+  vis_m: [["sim/weather/visibility_reported_m", 1], ["sim/weather/aircraft/visibility_reported_sm", 1609.344]],
+  rain: [["sim/weather/rain_percent", 1]],
+  tstorm: [["sim/weather/thunderstorm_percent", 1]],
+  turb: [["sim/weather/wind_turbulence_percent", 1]],
+  baro_inhg: [["sim/weather/barometer_sealevel_inhg", 1]],
+};
+function splitIndex(name) {
+  const m = /^(.*)\[(\d+)\]$/.exec(name);
+  return m ? [m[1], parseInt(m[2], 10)] : [name, null];
+}
+
+// ------------------------------------------------------------------ airports (apt.dat)
+const FREQ_ROWS = { 50: "atis", 51: "unicom", 52: "delivery", 53: "ground", 54: "tower", 55: "approach", 56: "departure" };
+function inBoxes(lat, lon, boxes) {
+  if (!boxes || !boxes.length) return true;
+  return boxes.some(b => b[0] <= lat && lat <= b[1] && b[2] <= lon && lon <= b[3]);
+}
+const shortName = a => {
+  const skip = new Set(["intl", "international", "airport", "airfield", "regional", "aerodrome", "field"]);
+  const w = a.name.split(/\s+/).filter(x => x && !skip.has(x.toLowerCase().replace(/\./g, "")));
+  return w.slice(0, 2).join(" ") || a.icao;
+};
+const longestM = a => a.runways.reduce((m, r) => Math.max(m, r.length_m), 0);
+
+class AptParser {
+  constructor(boxes, store) { this.boxes = boxes; this.store = store; this.cur = null; this.keep = false; this.pts = []; }
+  finish() {
+    const c = this.cur;
+    if (c && this.keep && c.runways.length) {
+      if (!c.lat && this.pts.length) {
+        c.lat = this.pts.reduce((a, p) => a + p[0], 0) / this.pts.length;
+        c.lon = this.pts.reduce((a, p) => a + p[1], 0) / this.pts.length;
+      }
+      this.store.set(c.icao, c);
+    }
+  }
+  feed(line) {
+    const f = line.trim().split(/\s+/);
+    if (!f[0]) return;
+    const code = parseInt(f[0], 10);
+    if (Number.isNaN(code)) return;
+    if (code === 1 || code === 16 || code === 17) {
+      this.finish(); this.pts = []; this.cur = null; this.keep = false;
+      if (code === 1 && f.length >= 6) {
+        this.cur = { icao: f[4], name: f.slice(5).join(" "), elev_ft: parseFloat(f[1]), lat: 0, lon: 0, runways: [], freqs: {} };
+      }
+    } else if (this.cur === null) {
+      return;
+    } else if (code === 1302 && f.length >= 3) {
+      if (f[1] === "datum_lat") this.cur.lat = parseFloat(f[2]);
+      else if (f[1] === "datum_lon") this.cur.lon = parseFloat(f[2]);
+      if (this.cur.lat && this.cur.lon) this.keep = inBoxes(this.cur.lat, this.cur.lon, this.boxes);
+    } else if (code === 100 && f.length >= 20) {
+      const la1 = +f[9], lo1 = +f[10], la2 = +f[18], lo2 = +f[19];
+      this.pts.push([la1, lo1]);
+      if (!this.keep && !this.cur.lat) this.keep = inBoxes(la1, lo1, this.boxes);
+      const len = haversineNm(la1, lo1, la2, lo2) * 1852;
+      this.cur.runways.push({ ident: f[8], lat: la1, lon: lo1, true_hdg: bearingDeg(la1, lo1, la2, lo2), length_m: len, other: f[17] });
+      this.cur.runways.push({ ident: f[17], lat: la2, lon: lo2, true_hdg: bearingDeg(la2, lo2, la1, lo1), length_m: len, other: f[8] });
+    } else if ((FREQ_ROWS[code] || FREQ_ROWS[code - 1000]) && f.length >= 2) {
+      const kind = FREQ_ROWS[code] || FREQ_ROWS[code - 1000];
+      const v = parseFloat(f[1]);
+      if (!Number.isNaN(v) && !(kind in this.cur.freqs)) this.cur.freqs[kind] = code >= 1000 ? v / 1000 : v / 100;
+    }
+  }
+}
+
+class AirportDB {
+  constructor() { this.airports = new Map(); }
+  loadText(text, boxes) {
+    const p = new AptParser(boxes, this.airports);
+    for (const line of text.split(/\r?\n/)) p.feed(line);
+    p.finish();
+  }
+  async loadFile(file, boxes, onProgress) {
+    const p = new AptParser(boxes, this.airports);
+    const reader = file.stream().pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "", read = 0;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      read += value.length;
+      buf += value;
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const l of lines) p.feed(l);
+      if (onProgress) onProgress(read);
+    }
+    if (buf) p.feed(buf);
+    p.finish();
+  }
+  get(icao) { return this.airports.get(String(icao).toUpperCase()) || null; }
+  nearest(lat, lon, n = 1, maxNm = null, only = null) {
+    // single pass keeping the best n, so a world-sized list stays cheap at 10 calls a second
+    const best = [];
+    const consider = a => {
+      const d = haversineNm(lat, lon, a.lat, a.lon);
+      if (maxNm !== null && d > maxNm) return;
+      if (best.length === n && d >= best[n - 1][0]) return;
+      let i = best.length; while (i > 0 && best[i - 1][0] > d) i--;
+      best.splice(i, 0, [d, a]); if (best.length > n) best.pop();
+    };
+    if (only) for (const a of only) consider(a); else for (const a of this.airports.values()) consider(a);
+    return best;
+  }
+  atisPool() {
+    if (this._atis && this._atisN === this.airports.size) return this._atis;
+    this._atis = Array.from(this.airports.values()).filter(a => "atis" in a.freqs || "tower" in a.freqs || "approach" in a.freqs);
+    this._atisN = this.airports.size; return this._atis;
+  }
+  majors() {
+    if (this._majors && this._majorsN === this.airports.size) return this._majors;
+    const all = Array.from(this.airports.values());
+    const m = all.filter(a => ("tower" in a.freqs || "approach" in a.freqs) && longestM(a) >= 2000);
+    this._majors = m.length ? m : all; this._majorsN = this.airports.size;
+    return this._majors;
+  }
+}
+function fakeFreq(icao, kind) {
+  const s = icao + kind; let h = 0;
+  for (let i = 0; i < s.length; i++) h += (i + 1) * s.charCodeAt(i);
+  return 118.0 + (h % 760) * 0.025;
+}
+
+// ------------------------------------------------------------------ seeded random
+function hashStr(s) { let h = 1779033703 ^ s.length; for (let i = 0; i < s.length; i++) { h = Math.imul(h ^ s.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); } return h >>> 0; }
+function rng(seed) {
+  let a = hashStr(seed);
+  const next = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  return { next, int: (lo, hi) => lo + Math.floor(next() * (hi - lo + 1)), pick: arr => arr[Math.floor(next() * arr.length)] };
+}
+
+// ------------------------------------------------------------------ weather
+function magVariation(s) { return nn(s.true_psi) && nn(s.mag_psi) ? angleDiff(s.true_psi, s.mag_psi) : 0; }
+function summarizeWeather(s) {
+  const v = magVariation(s);
+  const o = { wind_dir_mag: null, wind_dir_true: null, wind_kt: null, gusty: null, stormy: null, vis_m: null,
+              vis_nm: null, vis_sm: null, qnh_hpa: null, qnh_inhg: null, unknown: [], notes: [] };
+  if (nn(s.wind_dir_true) && nn(s.wind_kt)) {
+    o.wind_dir_true = Math.round(s.wind_dir_true) % 360;
+    o.wind_dir_mag = Math.round(mod(s.wind_dir_true - v, 360)) % 360;
+    o.wind_kt = Math.round(s.wind_kt);
+  } else o.unknown.push("wind");
+  if (nn(s.turb)) { o.gusty = s.turb >= 30; o.notes.push("gusty is estimated from turbulence percent, gust speed unknown"); } else o.unknown.push("gusts");
+  if (nn(s.tstorm) || nn(s.rain)) o.stormy = (s.tstorm || 0) >= 20 || (s.rain || 0) >= 60; else o.unknown.push("storms");
+  if (nn(s.vis_m)) { o.vis_m = Math.round(s.vis_m); o.vis_nm = Math.round(s.vis_m / 1852 * 10) / 10; o.vis_sm = Math.round(s.vis_m / 1609.344 * 10) / 10; } else o.unknown.push("visibility");
+  if (nn(s.baro_inhg)) { o.qnh_inhg = Math.round(s.baro_inhg * 100) / 100; o.qnh_hpa = Math.round(s.baro_inhg * 33.8639); } else o.unknown.push("pressure");
+  o.notes.push("values are what the sim reports at the aircraft, not necessarily the airport");
+  return o;
+}
 
 
-def http_get(url):
-    req = urllib.request.Request(url, headers=HEADERS)
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
-            return r.read().decode("utf-8", "replace"), None
-    except urllib.error.HTTPError as e:
-        return None, "HTTP %s" % e.code
-    except urllib.error.URLError as e:
-        return None, "could not connect (%s)" % (e.reason,)
-    except Exception as e:
-        return None, "%s: %s" % (type(e).__name__, e)
+// ------------------------------------------------------------------ real METAR (optional)
+// Parses a raw METAR into the same shape summarizeWeather() returns. Winds in a METAR are true; the
+// magnetic wind uses the variation at the aircraft, which is close enough for the same region.
+function parseMetar(raw, magVar = 0) {
+  const o = { wind_dir_mag: null, wind_dir_true: null, wind_kt: null, gust_kt: null, gusty: null, stormy: null, vis_m: null,
+              vis_nm: null, vis_sm: null, qnh_hpa: null, qnh_inhg: null, ceiling_ft: null, temp_c: null, dew_c: null, layers: [], sky_clear: false, unknown: [], notes: [], raw };
+  const t = " " + String(raw).toUpperCase().replace(/\s+RMK\b.*$/, "").replace(/\s+(TEMPO|BECMG)\b.*$/, "") + " ";
+  let m = t.match(/ (VRB|\d{3})(\d{2,3})(?:G(\d{2,3}))?(KT|MPS) /);
+  if (m) {
+    const k = m[4] === "MPS" ? 1.94384 : 1;
+    o.wind_kt = Math.round(+m[2] * k);
+    if (m[3]) o.gust_kt = Math.round(+m[3] * k);
+    if (m[1] !== "VRB" && o.wind_kt > 0) { o.wind_dir_true = +m[1] % 360; o.wind_dir_mag = Math.round(mod(+m[1] - magVar, 360)) % 360; }
+    else if (o.wind_kt > 0) o.notes.push("wind direction variable");
+    o.gusty = o.gust_kt !== null && o.gust_kt - o.wind_kt >= 10;
+  } else o.unknown.push("wind");
+  if (/ CAVOK /.test(t)) o.vis_m = 10000;
+  else if ((m = t.match(/ (\d{4}) /)) && !/ \d{6}Z /.test(m[0])) o.vis_m = +m[1] === 9999 ? 10000 : +m[1];
+  else if ((m = t.match(/ (M?)(\d+)(?: (\d)\/(\d))?SM /))) o.vis_m = Math.round(((+m[2]) + (m[3] ? m[3] / m[4] : 0)) * 1609.344);
+  else if ((m = t.match(/ (\d)\/(\d)SM /))) o.vis_m = Math.round(m[1] / m[2] * 1609.344);
+  if (o.vis_m !== null) { o.vis_nm = Math.round(o.vis_m / 1852 * 10) / 10; o.vis_sm = Math.round(o.vis_m / 1609.344 * 10) / 10; } else o.unknown.push("visibility");
+  o.stormy = / (\+|-)?(VC)?(TS|TSRA|FC)\w* /.test(t) || / TS/.test(t);
+  if ((m = t.match(/ Q(\d{4}) /))) { o.qnh_hpa = +m[1]; o.qnh_inhg = Math.round(+m[1] / 33.8639 * 100) / 100; }
+  else if ((m = t.match(/ A(\d{4}) /))) { o.qnh_inhg = +m[1] / 100; o.qnh_hpa = Math.round(+m[1] / 100 * 33.8639); }
+  else o.unknown.push("pressure");
+  const lay = [...t.matchAll(/ (BKN|OVC|VV)(\d{3})/g)].map(x => +x[2] * 100);
+  if (lay.length) o.ceiling_ft = Math.min(...lay);
+  o.layers = [...t.matchAll(/ (FEW|SCT|BKN|OVC|VV)(\d{3})/g)].map(x => ({ cov: x[1], ft: +x[2] * 100 }));
+  o.sky_clear = !o.layers.length && / (CLR|SKC|NSC|NCD|CAVOK) /.test(t);
+  if ((m = t.match(/ (M?\d{2})\/(M?\d{2})? /))) {            // temperature / dew point in whole degrees C, M = minus
+    const c = s => s === undefined ? null : (s[0] === "M" ? -1 : 1) * +s.replace("M", "");
+    o.temp_c = c(m[1]); o.dew_c = c(m[2]);
+  }
+  o.notes.push("real METAR");
+  return o;
+}
+function extractMetar(text) {
+  const m = String(text).match(/\b(?:METAR |SPECI )?[A-Z]{4} \d{6}Z [^"\n<\\]+/);
+  return m ? m[0].trim() : null;
+}
+
+// ------------------------------------------------------------------ NOTAMs (fictional)
+const NOTAM_TEMPLATES = [
+  ["crane", "Crane erected 1.2 NM from the field, 280 ft AGL, lit at night."],
+  ["taxiway", "Taxiway {tw} closed for maintenance."],
+  ["birds", "Bird activity reported on and around the airfield."],
+  ["papi", "PAPI for runway {rw} unserviceable."],
+  ["ils", "ILS for runway {rw} unserviceable."],
+  ["closed", "Runway {rw} closed for maintenance until further notice."],
+  ["lights", "Approach lighting for runway {rw} unserviceable."],
+  ["drone", "Drone activity reported within 3 NM of the field."],
+];
+function closedRunways(notams, airport) {
+  const other = {}; airport.runways.forEach(r => { other[r.ident] = r.other; });
+  const closed = new Set();
+  for (const n of notams) if (n.kind === "closed" && n.runway) { closed.add(n.runway); if (other[n.runway]) closed.add(other[n.runway]); }
+  return closed;
+}
+function generateNotams(airport, day) {
+  day = day || new Date().toISOString().slice(0, 10);
+  const r = rng(airport.icao + "|" + day);
+  const idents = Array.from(new Set(airport.runways.map(x => x.ident))).sort();
+  if (!idents.length) idents.push("??");
+  const pool = NOTAM_TEMPLATES.slice(), picks = [];
+  for (let k = r.int(0, 3); k > 0; k--) picks.push(pool.splice(Math.floor(r.next() * pool.length), 1)[0]);
+  let out = picks.map(([kind, text]) => {
+    const rw = r.pick(idents);
+    return { kind, runway: text.includes("{rw}") || kind === "closed" ? rw : null,
+             text: text.replace("{rw}", rw).replace("{tw}", r.pick("ABCDEF".split(""))), fictional: true };
+  });
+  if (closedRunways(out, airport).size >= idents.length) out = out.filter(n => n.kind !== "closed");
+  return out;
+}
+
+// ------------------------------------------------------------------ cruise level
+// Base level from the trip distance (a generic airliner), then snapped to the semicircular rule:
+// IFR eastbound (track 000-179) odd thousands, westbound even thousands. VFR uses the same
+// hemispheric split plus 500 ft (3500, 5500 ... east; 4500, 6500 ... west), capped at 8,000.
+function levelText(ft) { return ft >= 10000 ? "flight level " + String(Math.round(ft / 100)).padStart(3, "0") : ft + " feet"; }
+function cruiseLevel(distNm, trackTrue, rules = "IFR", filedFt = null) {
+  const east = mod(trackTrue, 360) < 180;
+  let base = distNm < 50 ? 5000 : distNm < 100 ? 10000 : distNm < 160 ? 18000 : distNm < 250 ? 26000 : distNm < 400 ? 34000 : 38000;
+  let ft;
+  if (rules === "VFR") {
+    base = Math.min(base, 8000);
+    let best = null;
+    for (let k = 1; k <= 12; k++) { if ((k % 2 === 1) !== east) continue; const c = k * 1000 + 500; if (best === null || Math.abs(c - base) < Math.abs(best - base)) best = c; }
+    ft = best;
+  } else {
+    if (filedFt && filedFt >= 3000) base = filedFt;
+    ft = Math.round(base / 1000) * 1000;
+    if ((Math.round(ft / 1000) % 2 === 1) !== east) ft += base >= ft ? 1000 : -1000;
+    ft = Math.max(ft, 3000);
+  }
+  return { ft, text: levelText(ft), rules, east };
+}
+
+// ------------------------------------------------------------------ controller
+const ATIS_NM = 40;          // ATIS is offered inside this distance: the sim's weather is read at the aircraft, so a far airport would get the wrong weather
+const NATO = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India", "Juliet", "Kilo", "Lima", "Mike", "November", "Oscar", "Papa", "Quebec", "Romeo", "Sierra", "Tango", "Uniform", "Victor", "Whiskey", "Xray", "Yankee", "Zulu"];
+const REQUEST_NM = 85;      // a pilot request for approach is accepted inside this distance
+const FT_PER_NM_3TO1 = 1000 / 3, FT_PER_NM_3DEG = 318.4, FINAL_FIX_NM = 10, FINAL_FIX_AGL = 3000, TOL_PCT = 5;
+const KIND_FOR_ROLE = { Delivery: ["delivery", "ground"], Ground: ["ground"], Tower: ["tower"], Approach: ["approach", "tower"], Departure: ["departure", "approach"], Control: [] };
+
+function pickRunway(airport, windDirTrue, windKt, closed = new Set()) {
+  let c = airport.runways.filter(r => !closed.has(r.ident));
+  if (!c.length) c = airport.runways.slice();
+  if (!nn(windDirTrue) || !nn(windKt) || windKt < 3) {
+    const r = c.reduce((a, b) => (b.length_m > a.length_m ? b : a));
+    return [r, { headwind_kt: null, crosswind_kt: null, reason: "calm or unknown wind, longest runway" }];
+  }
+  const hw = x => windKt * Math.cos(rad(angleDiff(windDirTrue, x.true_hdg)));
+  const r = c.reduce((a, b) => {
+    const ka = [Math.round(hw(a)), a.length_m], kb = [Math.round(hw(b)), b.length_m];
+    return (kb[0] > ka[0] || (kb[0] === ka[0] && kb[1] > ka[1])) ? b : a;
+  });
+  const ang = rad(angleDiff(windDirTrue, r.true_hdg));
+  return [r, { headwind_kt: Math.round(windKt * Math.cos(ang)), crosswind_kt: Math.round(Math.abs(windKt * Math.sin(ang))), reason: "best headwind" }];
+}
+
+class Controller {
+  constructor(db, cfg = {}) {
+    this.db = db;
+    this.gateNm = cfg.gate_nm ?? 60; this.requestApproach = false; this.diverted = false; this.queued = []; this.atisRange = ATIS_NM; this.metars = {}; this.useMetar = false;
+    this.enroute = cfg.enroute ?? true; this.altHist = []; this.vsFpm = null; this.vertState = "CLIMB";
+    this.hystNm = cfg.handoff_hysteresis_nm ?? 15;
+    this.departureNm = cfg.departure_nm ?? 25;
+    this.dest = null; this.origin = null; this.destRwy = null; this.depRwy = null;
+    this.resetFlight();
+    this.phase = null; this.role = null; this.ctrlIcao = null;
+    this.afterLanding = false; this.last = {}; this.lastVectorHdg = null; this.lastAssign = null; this.notams = {};
+  }
+  resetFlight() {
+    this.clr = { startup: false, rules: null, taxi: false, takeoff: false, squawk: null };
+    this.seenAirborne = false; this.checkedIn = false; this.clearedLand = false; this.gearWarned = false; this.requestApproach = false; this.diverted = false;
+  }
+  setDest(icao) {
+    const ap = this.db.get(icao);
+    if (!ap) return false;
+    this.dest = ap; this.destRwy = null; this.lastAssign = null; this.lastVectorHdg = null;
+    this.checkedIn = false; this.clearedLand = false; this.requestApproach = false;
+    return true;
+  }
+  // Weather for an airport: the real METAR when that mode is on and one has been fetched, else the sim's weather at the aircraft.
+  weatherAt(s, ap) {
+    const m = this.useMetar && ap && this.metars[ap.icao];
+    if (m) { const w = { ...m.w, notes: m.w.notes.slice() }; const v = magVariation(s); if (w.wind_dir_true !== null) w.wind_dir_mag = Math.round(mod(w.wind_dir_true - v, 360)) % 360; return { w, basis: "real METAR" }; }
+    return { w: summarizeWeather(s), basis: "sim weather at the aircraft" };
+  }
+  atisAirport(s) {
+    if (!nn(s.lat)) return null;
+    const near = this.db.nearest(s.lat, s.lon, 1, this.atisRange, this.db.atisPool());
+    return near.length ? near[0][1] : null;
+  }
+  atisAirports(s, n = 6) {
+    if (!nn(s.lat)) return [];
+    return this.db.nearest(s.lat, s.lon, n, this.atisRange, this.db.atisPool()).map(([d, a]) => ({ ap: a, dist_nm: Math.round(d) }));
+  }
+  atisInfo(s, ap) {
+    const zulu = nn(s.zulu_sec) ? s.zulu_sec : Math.floor(Date.now() / 1000) % 86400, hour = Math.floor(zulu / 3600) % 24;
+    const letter = NATO[hour % 26], hhmm = String(hour).padStart(2, "0") + String(Math.floor(zulu / 60) % 60).padStart(2, "0");
+    const { w, basis } = this.weatherAt(s, ap);
+    const rw = (this.dest && ap.icao === this.dest.icao && this.destRwy) || pickRunway(ap, w.wind_dir_true, w.wind_kt, this.closedFor(ap))[0];   // at the destination, say the runway the approach is actually using
+    const notams = this.notamsFor(ap).slice(0, 2).map(n => n.text);
+    const freq = "atis" in ap.freqs ? ap.freqs.atis : fakeFreq(ap.icao, "atis");
+    const vis = w.vis_nm === null ? "" : ` Visibility ${w.vis_nm} nautical miles.`, qnh = w.qnh_hpa === null ? "" : ` QNH ${w.qnh_hpa}.`;
+    const text = `${ap.name} information ${letter}. Time ${hhmm} zulu. ${windText(w)}.${vis}${skyText(w)}${tempText(w)}${qnh} Runway ${rw.ident} in use.` +
+      (notams.length ? " NOTAM: " + notams.join(" ") : "") + ` Advise on initial contact you have information ${letter}.`;
+    return { icao: ap.icao, airport: ap.name, letter, hhmm, runway: rw.ident, weather: w, notams, freq_mhz: freq.toFixed(3), text, weather_basis: basis };
+  }
+  // The ATIS airport whose frequency matches the tuned one (within range unless atisRange is huge). Nearest wins if two airports share a frequency.
+  atisByFreq(s, mhz) {
+    if (!nn(s.lat) || !nn(mhz) || mhz <= 0) return null;
+    const key = Math.round(mhz * 1000);
+    if (!this.db._fmap || this.db._fmapN !== this.db.airports.size) {
+      const m = new Map();
+      for (const ap of this.db.atisPool()) { const k = Math.round(("atis" in ap.freqs ? ap.freqs.atis : fakeFreq(ap.icao, "atis")) * 1000); if (!m.has(k)) m.set(k, []); m.get(k).push(ap); }
+      this.db._fmap = m; this.db._fmapN = this.db.airports.size;
+    }
+    let best = null, bd = Infinity;
+    for (const ap of this.db._fmap.get(key) || []) { const d = haversineNm(s.lat, s.lon, ap.lat, ap.lon); if (d <= this.atisRange && d < bd) { best = ap; bd = d; } }
+    return best;
+  }
+  atisSpeaker(ap, info) { return { name: shortName(ap) + " ATIS", icao: ap.icao, freq_mhz: info.freq_mhz, freq_source: "atis" in ap.freqs ? "airport data" : "generated" }; }
+  atisEvent(s, ap) { const info = this.atisInfo(s, ap); return this.ev("atis", s, info, this.atisSpeaker(ap, info)); }
+  inService(d) { return !!this.dest && d !== null && (d <= this.gateNm || (this.requestApproach && d <= REQUEST_NM)); }
+  nearbyAirports(s, maxNm = 150, n = 5) {
+    if (!nn(s.lat)) return [];
+    return this.db.nearest(s.lat, s.lon, n + 1, maxNm, this.db.majors())
+      .filter(([, a]) => !this.dest || a.icao !== this.dest.icao).slice(0, n)
+      .map(([d, a]) => ({ icao: a.icao, name: a.name, dist_nm: Math.round(d) }));
+  }
+  findAirport(t, s) {
+    const m = t.toUpperCase().match(/\b[A-Z]{4}\b/g) || [];
+    for (const c of m) { const a = this.db.get(c); if (a) return a; }
+    const GENERIC = new Set(["intl", "international", "airport", "airfield", "regional", "aerodrome", "field", "domestic", "memorial", "municipal", "county"]);
+    for (const [, a] of this.db.nearest(s.lat, s.lon, 60, 500)) {
+      const words = a.name.toLowerCase().split(/[^a-z]+/).filter(w => w.length >= 4 && !GENERIC.has(w));
+      if (words.some(w => t.includes(w))) return a;
+    }
+    return null;
+  }
+  // Weather comes from weatherAt(): real METAR if enabled and fetched, otherwise the sim's weather at the aircraft.
+  assessLanding(ap, s) {
+    const { w, basis } = this.weatherAt(s, ap), reasons = [];
+    if (nn(w.vis_nm) && w.vis_nm < 3) reasons.push(`visibility ${w.vis_nm} nautical miles`);
+    if (w.stormy) reasons.push("thunderstorms reported");
+    if (nn(w.ceiling_ft) && w.ceiling_ft < 500) reasons.push(`ceiling ${w.ceiling_ft} feet`);
+    if (nn(w.wind_kt) && w.wind_kt >= 40) reasons.push(`wind ${Math.round(w.wind_kt)} knots`);
+    const [rw, info] = pickRunway(ap, w.wind_dir_true, w.wind_kt, this.closedFor(ap));
+    if (info && nn(info.crosswind_kt) && Math.abs(info.crosswind_kt) >= 25) reasons.push(`crosswind ${Math.round(Math.abs(info.crosswind_kt))} knots`);
+    return { ok: reasons.length === 0, reasons, rw, weather: w, basis };
+  }
+  notamsFor(ap) { if (!this.notams[ap.icao]) this.notams[ap.icao] = generateNotams(ap); return this.notams[ap.icao]; }
+  closedFor(ap) { return closedRunways(this.notamsFor(ap), ap); }
+  distDest(s) { return this.dest ? haversineNm(s.lat, s.lon, this.dest.lat, this.dest.lon) : null; }
+  rwy(s) {
+    if (!this.dest) return null;
+    if (!this.destRwy) { const w = this.weatherAt(s, this.dest).w; this.destRwy = pickRunway(this.dest, w.wind_dir_true, w.wind_kt, this.closedFor(this.dest))[0]; }
+    return this.destRwy;
+  }
+  setDestRunway(ident) {
+    if (!this.dest) return false;
+    const r = this.dest.runways.find(x => x.ident === ident.toUpperCase());
+    if (!r) return false;
+    this.destRwy = r; return true;
+  }
+  computePhase(s) {
+    const gs = gsKt(s) || 0;
+    if (grounded(s)) {
+      if (this.seenAirborne) return gs >= 40 ? "ROLLOUT" : (gs < 1.5 ? "PARKED" : "TAXI_IN");
+      if (gs < 1.5) return "PARKED";
+      return gs < 40 ? "TAXI" : "TAKEOFF";
+    }
+    const d = this.distDest(s);
+    if (this.inService(d)) {
+      const rw = this.rwy(s);
+      if (rw) {
+        const [along, cross] = alongCross(s.lat, s.lon, rw.lat, rw.lon, rw.true_hdg);
+        if (along >= 0 && along <= 8 && Math.abs(cross) <= 2.5 && (aglFt(s) || 0) <= FINAL_FIX_AGL + 1500) return "FINAL";
+      }
+      return "ARRIVAL";
+    }
+    if (this.origin && haversineNm(s.lat, s.lon, this.origin.lat, this.origin.lon) <= this.departureNm &&
+        !this.inService(d)) return "DEPARTURE";
+    return this.vertState;      // CLIMB, CRUISE or DESCENT, from the altitude trend
+  }
+  // Vertical trend from the last minute of altitude samples; hysteresis stops it flickering between states.
+  trackAlt(s, now) {
+    if (grounded(s) || !nn(s.elev_m)) { this.altHist = []; this.vsFpm = null; this.vertState = "CLIMB"; return; }
+    const alt = altFt(s); if (!nn(alt)) return;
+    this.altHist.push([now, alt]);
+    while (this.altHist.length > 2 && now - this.altHist[0][0] > 60) this.altHist.shift();
+    const [t0, a0] = this.altHist[0], span = now - t0;
+    if (span < 20) return;
+    const vs = (alt - a0) / (span / 60); this.vsFpm = vs;
+    const st = this.vertState;
+    if (st === "CLIMB") { if (vs < 200) this.vertState = vs <= -500 ? "DESCENT" : "CRUISE"; }
+    else if (st === "DESCENT") { if (vs > -200) this.vertState = vs >= 500 ? "CLIMB" : "CRUISE"; }
+    else if (vs >= 500) this.vertState = "CLIMB"; else if (vs <= -500) this.vertState = "DESCENT";
+  }
+  groundRole(phase) {
+    if (phase === "TAKEOFF" || phase === "ROLLOUT") return "Tower";
+    if (phase === "TAXI_IN" || (phase === "PARKED" && (this.seenAirborne || (this.afterLanding && !this.clr.startup)))) return "Ground";
+    if (!this.clr.taxi) return "Delivery";
+    return this.clr.takeoff ? "Tower" : "Ground";
+  }
+  computeRole(s, phase) {
+    if (["PARKED", "TAXI", "TAKEOFF", "ROLLOUT", "TAXI_IN"].includes(phase)) {
+      const near = this.db.nearest(s.lat, s.lon, 1, 6);
+      return near.length ? [near[0][1].icao, this.groundRole(phase)] : null;
+    }
+    if (phase === "DEPARTURE") return [this.origin.icao, "Departure"];
+    if (phase === "FINAL") return [this.dest.icao, "Tower"];
+    if (phase === "ARRIVAL") return [this.dest.icao, "Approach"];
+    if (!this.enroute) return null;
+    const best = this.db.nearest(s.lat, s.lon, 1, null, this.db.majors());
+    if (!best.length) return null;
+    const [dNew, aNew] = best[0];
+    const cur = this.ctrlIcao ? this.db.get(this.ctrlIcao) : null;
+    if (!cur || dNew + this.hystNm < haversineNm(s.lat, s.lon, cur.lat, cur.lon)) this.ctrlIcao = aNew.icao;
+    return [this.ctrlIcao, "Control"];
+  }
+  speaker(role) {
+    role = role || this.role;
+    if (!role) return null;
+    const ap = this.db.get(role[0]);
+    let freq = null, src = "airport data";
+    for (const k of (KIND_FOR_ROLE[role[1]] || [])) if (k in ap.freqs) { freq = ap.freqs[k]; break; }
+    if (freq === null) { freq = fakeFreq(ap.icao, role[1]); src = "generated"; }
+    return { name: shortName(ap) + " " + role[1], icao: ap.icao, freq_mhz: freq.toFixed(3), freq_source: src };
+  }
+  snapshot(s) {
+    const d = this.distDest(s), r = (v, f = x => Math.round(x)) => (nn(v) ? f(v) : null);
+    return { alt_ft: r(altFt(s)), agl_ft: r(aglFt(s)), ias_kt: r(s.ias_kt), gs_kt: r(gsKt(s)),
+             heading_mag: nn(s.mag_psi) ? parseInt(hdgStr(s.mag_psi), 10) : null, vs_fpm: r(s.vs_fpm),
+             gear_down: nn(s.gear) ? s.gear > 0.5 : null, dist_to_dest_nm: d === null ? null : Math.round(d * 10) / 10 };
+  }
+  guidance(s) {
+    const rw = this.rwy(s);
+    if (!rw) return null;
+    const elev = this.dest.elev_ft, alt = altFt(s), v = magVariation(s);
+    const [along, cross] = alongCross(s.lat, s.lon, rw.lat, rw.lon, rw.true_hdg);
+    const [fl, fo] = offsetPoint(rw.lat, rw.lon, rw.true_hdg + 180, FINAL_FIX_NM);
+    const dFix = haversineNm(s.lat, s.lon, fl, fo);
+    const courseMag = mod(rw.true_hdg - v, 360);
+    let mode, hdgTrue;
+    if (along > 12 || Math.abs(cross) > 6 || along < 0) { mode = "direct to final fix"; hdgTrue = bearingDeg(s.lat, s.lon, fl, fo); }
+    else if (Math.abs(cross) < 0.5) { mode = "established on final course"; hdgTrue = rw.true_hdg; }
+    else { mode = "intercept final course"; hdgTrue = rw.true_hdg + (cross > 0 ? 30 : -30); }
+    let ideal, basis, perNm;
+    if (mode !== "direct to final fix" && along <= FINAL_FIX_NM) { ideal = elev + Math.max(along, 0) * FT_PER_NM_3DEG; basis = "3 degree path"; perNm = FT_PER_NM_3DEG; }
+    else {
+      const path = mode === "direct to final fix" ? dFix : Math.max(along - FINAL_FIX_NM, 0);
+      ideal = elev + FINAL_FIX_AGL + path * FT_PER_NM_3TO1; basis = "3 NM per 1000 ft to the 10 NM final fix"; perNm = FT_PER_NM_3TO1;
+    }
+    const dev = alt - ideal, devPct = dev / Math.max(alt - elev, 1000) * 100;
+    const r100 = x => Math.round(x / 100) * 100, r10 = x => Math.round(x / 10) * 10;
+    let assign = Math.max(Math.floor(ideal / 100) * 100, r100(elev + FINAL_FIX_AGL));
+    assign = Math.min(assign, r100(alt));
+    const gs = gsKt(s) || 0;
+    return { runway: rw.ident, runway_course_mag: parseInt(hdgStr(courseMag), 10), mode,
+      heading_mag: parseInt(hdgStr(hdgTrue - v), 10), dist_to_final_fix_nm: Math.round(dFix * 10) / 10,
+      along_track_nm: Math.round(along * 10) / 10, cross_track_nm: Math.round(Math.abs(cross) * 10) / 10,
+      cross_side: Math.abs(cross) < 0.1 ? null : (cross > 0 ? "left" : "right"),
+      ideal_alt_ft: r10(ideal), deviation_ft: r10(dev), deviation_pct: Math.round(devPct * 10) / 10, tolerance_pct: TOL_PCT,
+      profile_basis: basis, assign_alt_ft: assign, descent_rate_fpm: r10(gs * perNm / 60),
+      too_high: devPct > TOL_PCT, too_low: devPct < -TOL_PCT };
+  }
+  ev(kind, s, facts, speaker) { return { kind, speaker: speaker || this.speaker(), state: this.snapshot(s), facts }; }
+  cool(kind, now, secs) { if (now - (this.last[kind] ?? -1e9) >= secs) { this.last[kind] = now; return true; } return false; }
+
+  update(s, now) {
+    const events = [];
+    if (!stateReady(s)) return events;
+    if (this.queued.length) events.push(...this.queued.splice(0));
+    if (!grounded(s) && (aglFt(s) || 0) > 50) this.seenAirborne = true;
+    this.trackAlt(s, now);
+    if (!this.origin && grounded(s) && (gsKt(s) || 0) < 2) {
+      const near = this.db.nearest(s.lat, s.lon, 1, 3);
+      if (near.length) this.origin = near[0][1];
+    }
+    const phase = this.computePhase(s), role = this.computeRole(s, phase);
+    if (this.phase === null) { this.phase = phase; this.role = role; return events; }
+    const sameRole = (a, b) => (a === null && b === null) || (a && b && a[0] === b[0] && a[1] === b[1]);
+    if (role !== null && !sameRole(role, this.role)) {
+      const old = this.speaker(this.role); this.role = role; const nw = this.speaker(role);
+      if (old && nw && old.name !== nw.name)
+        events.push(this.ev("handoff", s, { from: old.name, to: nw.name, to_freq_mhz: nw.freq_mhz }, old));
+    } else if (role === null) this.role = null;
+
+    if (phase !== this.phase) {
+      const prev = this.phase; this.phase = phase;
+      if (phase === "ROLLOUT") { this.destRwyLanded = this.destRwy ? this.destRwy.ident : null; events.push(this.ev("landed", s, { runway: this.destRwyLanded })); }
+      if (phase === "PARKED" && this.seenAirborne) {
+        const near = this.db.nearest(s.lat, s.lon, 1, 3);
+        this.resetFlight();
+        this.afterLanding = true;                    // stay with Ground until the next request
+        if (near.length) this.origin = near[0][1];
+        this.dest = null; this.destRwy = null;
+        this.role = this.computeRole(s, phase) || this.role;
+      }
+      if (phase === "DEPARTURE" && prev === "TAKEOFF") { const c = this.clr.rules === "VFR" ? null : this.cruisePlan(); events.push(this.ev("airborne", s, { note: "radar contact", climb_to: c ? c.text : null })); }
+    }
+    if (this.dest && !grounded(s)) events.push(...this.airborneEvents(s, phase, now));
+    return events;
+  }
+  airborneEvents(s, phase, now) {
+    const ev = [], g = this.guidance(s);
+    if (!g) return ev;
+    const d = this.distDest(s);
+    if ((phase === "ARRIVAL" || phase === "FINAL") && !this.checkedIn && this.inService(d)) {
+      this.checkedIn = true; this.lastVectorHdg = g.heading_mag; this.last.vector = now;
+      ev.push(this.ev("arrival_checkin", s, { atis_letter: this.atisInfo(s, this.dest).letter, runway: g.runway, weather: this.weatherAt(s, this.dest).w, notams: this.notamsFor(this.dest), guidance: g }));
+    } else if (phase === "ARRIVAL") {
+      const changed = this.lastVectorHdg === null || Math.abs(angleDiff(g.heading_mag, this.lastVectorHdg)) >= 10;
+      if (this.cool("vector", now, changed ? 20 : 180)) { this.lastVectorHdg = g.heading_mag; ev.push(this.ev("vector", s, { guidance: g })); }
+    }
+    if (["CLIMB", "CRUISE", "DESCENT", "ARRIVAL", "DEPARTURE"].includes(phase) && g.too_high && g.dist_to_final_fix_nm > 0) {
+      const tod = FINAL_FIX_NM + (altFt(s) - this.dest.elev_ft - FINAL_FIX_AGL) / 1000 * 3;
+      const newAlt = this.lastAssign === null || Math.abs(g.assign_alt_ft - this.lastAssign) >= 500;
+      if (d <= tod + 5 && this.cool("descent", now, newAlt ? 90 : 240)) {
+        this.lastAssign = g.assign_alt_ft;
+        ev.push(this.ev("descent", s, { guidance: g, top_of_descent_nm: Math.round(tod) }));
+      }
+    }
+    if (phase === "FINAL") {
+      if (!this.clearedLand && g.along_track_nm <= 7 && g.cross_track_nm <= 1.5) {
+        this.clearedLand = true;
+        ev.push(this.ev("cleared_to_land", s, { runway: g.runway, weather: this.weatherAt(s, this.dest).w, guidance: g }));
+      }
+      if (!this.gearWarned && g.along_track_nm <= 4 && nn(s.gear) && s.gear < 0.5) {
+        this.gearWarned = true; ev.push(this.ev("gear_check", s, { note: "gear appears up on short final" }));
+      }
+    }
+    return ev;
+  }
+  cruisePlan(from) {
+    const o = from || this.origin, d = this.dest; if (!o || !d) return null;
+    const rules = this.clr.rules || "IFR";
+    const filed = this.plan && this.plan.waypoints ? Math.max(0, ...this.plan.waypoints.map(w => +w.alt || 0)) : 0;
+    return cruiseLevel(haversineNm(o.lat, o.lon, d.lat, d.lon), bearingDeg(o.lat, o.lon, d.lat, d.lon), rules, filed >= 3000 ? filed : null);
+  }
+  // True when a grounded aircraft is within `nm` (250 ft by default) of a runway threshold at the airport it is on (the assigned departure runway if there is one).
+  atThreshold(s, nm = 250 / 6076.12) {
+    if (!nn(s.lat) || !grounded(s)) return false;
+    const near = this.db.nearest(s.lat, s.lon, 1, 6); if (!near.length) return false;
+    const ap = near[0][1], ends = this.depRwy && ap.runways.some(r => r.ident === this.depRwy.ident) ? ap.runways.filter(r => r.ident === this.depRwy.ident) : ap.runways;
+    return ends.some(r => haversineNm(s.lat, s.lon, r.lat, r.lon) <= nm);
+  }
+  arrived() { return this.afterLanding || ["ROLLOUT", "TAXI_IN"].includes(this.phase); }
+  handlePilot(text, s) {
+    const t = text.toLowerCase();
+    let ap = null;
+    if (nn(s.lat)) { const near = this.db.nearest(s.lat, s.lon, 1, 6); ap = near.length ? near[0][1] : null; }
+    const w = this.weatherAt(s, ap || (this.dest && this.distDest(s) <= this.atisRange ? this.dest : null)).w, gnd = grounded(s);
+    let facts = {}, intent = "other", spk = null, wantHandoff = false;
+    if (/\batis\b/.test(t)) {
+      const named = nn(s.lat) ? this.findAirport(t.replace(/\batis\b/g, ""), s) : null;
+      const a = named && this.atisAirports(s).some(x => x.ap.icao === named.icao) ? named : this.atisAirport(s);
+      if (a) { const info = this.atisInfo(s, a); spk = this.atisSpeaker(a, info); intent = "atis"; facts = info; }
+      else { intent = "atis"; facts = { none_in_range: true, limit_nm: this.atisRange > 1e6 ? null : ATIS_NM }; }
+    } else if (/wind|weather|gust|storm|visib|\bvis\b|qnh|altimeter/.test(t)) { intent = "weather"; facts = { weather: w }; }
+    else if (t.includes("notam")) { intent = "notam"; const tg = ap || this.dest; facts = { airport: tg ? tg.icao : null, notams: tg ? this.notamsFor(tg) : [] }; }
+    else if (t.includes("start") && ap && gnd) { intent = "startup"; this.clr.startup = true; this.afterLanding = false; facts = { approved: true, qnh: w.qnh_hpa, qnh_inhg: w.qnh_inhg, next: "report ready for IFR or VFR clearance" }; }
+    else if (/\bifr\b|\bvfr\b|clearance/.test(t) && ap && gnd) {
+      intent = "clearance"; this.clr.startup = true; this.afterLanding = false;
+      this.clr.rules = t.includes("vfr") ? "VFR" : (t.includes("ifr") ? "IFR" : this.clr.rules);
+      if (!this.clr.rules) facts = { needs: "pilot must state IFR or VFR" };
+      else {
+        const vfr = this.clr.rules === "VFR", conv = inBoxes(ap.lat, ap.lon, [[34, 72, -12, 45]]) ? "7000" : "1200";
+        if (vfr) this.clr.squawk = conv;                               // conventional VFR code: 7000 in Europe, 1200 elsewhere
+        else if (!this.clr.squawk || this.clr.squawk === "1200" || this.clr.squawk === "7000") {
+          const r = rng(ap.icao + "|" + t); this.clr.squawk = [0, 0, 0, 0].map(() => r.int(0, 7)).join("");
+        }
+        facts = vfr ? { rules: "VFR", squawk: this.clr.squawk, next: "request taxi when ready", note: "VFR: no climb altitude or heading is assigned; pilot navigates" }
+                    : { rules: this.clr.rules, squawk: this.clr.squawk, destination: this.dest ? this.dest.icao : "as filed",
+                        initial_climb_ft: Math.round((ap.elev_ft + 3000) / 100) * 100, expect_level: (() => { const c = this.cruisePlan(ap); return c ? c.text : null; })(), next: "request taxi when ready", note: "no SIDs in this version: initial climb only" };
+      }
+    } else if (/shut|parked|engines? off|closing|cancel/.test(t) && ap && gnd && this.arrived()) {
+      intent = "shutdown"; spk = this.speaker();
+      facts = { airport: ap.name, note: "flight finished; flight plan closed" };
+      this.afterLanding = false; this.resetFlight(); this.dest = null; this.destRwy = null; this.depRwy = null;   // a new flight can start from the beginning
+    } else if (/taxi|gate|park|stand|apron|ramp/.test(t) && ap && gnd && this.arrived()) {
+      intent = "taxi_in";
+      const rw = this.destRwyLanded || null;
+      facts = { instruction: "taxi to the gate, vacate the runway if still on it", landed_runway: rw, note: "taxi routing is not computed; no gate assignment" };
+    } else if (t.includes("taxi") && ap && gnd) {
+      intent = "taxi"; this.clr.startup = true; this.clr.taxi = true; this.afterLanding = false;
+      const [rw, info] = pickRunway(ap, w.wind_dir_true, w.wind_kt, this.closedFor(ap));
+      this.depRwy = rw;
+      facts = { runway: rw.ident, runway_info: info, weather: w, instruction: "taxi to holding point runway " + rw.ident + " via the most efficient route at your discretion, hold short", note: "taxi routing is not computed; pilot chooses the route" };
+    } else if (/takeoff|take off|ready|departure/.test(t) && ap && gnd && !this.atThreshold(s)) {
+      intent = "not_ready";
+      const rw = this.depRwy || pickRunway(ap, w.wind_dir_true, w.wind_kt, this.closedFor(ap))[0];
+      facts = { runway: rw.ident, instruction: "taxi to the holding point for runway " + rw.ident + " and report ready", taxied: this.clr.taxi };
+    } else if (/takeoff|take off|ready|departure/.test(t) && ap && gnd) {
+      intent = "takeoff"; this.clr.startup = this.clr.taxi = this.clr.takeoff = true;
+      const rw = this.depRwy || pickRunway(ap, w.wind_dir_true, w.wind_kt, this.closedFor(ap))[0];
+      facts = { cleared_for_takeoff: true, runway: rw.ident, weather: w };
+    } else if (!gnd && nn(s.lat) && /land|divert|alternate|proceed|go to|direct to/.test(t) && this.findAirport(t, s)) {
+      const ap2 = this.findAirport(t, s), dNm = Math.round(haversineNm(s.lat, s.lon, ap2.lat, ap2.lon)), a = this.assessLanding(ap2, s);
+      spk = this.speaker();
+      if (this.dest && ap2.icao === this.dest.icao) { intent = "arrival_request"; facts = { guidance: this.guidance(s), weather: w }; }
+      else if (!a.ok) {
+        intent = "land_at_unable"; facts = { airport: ap2.name, icao: ap2.icao, reasons: a.reasons, alternates: this.nearbyAirports(s).filter(x => x.icao !== ap2.icao).slice(0, 3), weather_basis: a.basis };
+      } else {
+        this.setDest(ap2.icao); this.destRwy = a.rw; this.diverted = true; this.requestApproach = dNm <= REQUEST_NM; wantHandoff = this.requestApproach;
+        intent = "land_at"; facts = { approved: true, airport: ap2.name, icao: ap2.icao, distance_nm: dNm, runway: a.rw.ident, weather: a.weather, approach_next: this.requestApproach, weather_basis: a.basis };
+      }
+    } else if (!gnd && nn(s.lat) && /divert|diversion|alternate|land at|landing at/.test(t)) {
+      intent = "divert_which"; facts = { nearby: this.nearbyAirports(s, 200, 6) };
+    } else if (/inbound|landing|approach/.test(t) && !gnd) {
+      if (!this.dest) { intent = "approach_request"; facts = { needs_destination: true, nearby: this.nearbyAirports(s, 200, 5) }; }
+      else {
+        const dNm = Math.round(this.distDest(s));
+        if (this.inService(this.distDest(s))) { intent = "arrival_request"; facts = { guidance: this.guidance(s), weather: w }; }
+        else if (dNm > REQUEST_NM) { intent = "approach_request"; facts = { too_far: true, distance_nm: dNm, limit_nm: REQUEST_NM, destination: this.dest.name }; }
+        else { spk = this.speaker(); this.requestApproach = true; wantHandoff = true; intent = "approach_request"; facts = { approved: true, destination: this.dest.name, distance_nm: dNm, note: "approach will call you next" }; }
+      }
+    } else if (/vector|descen/.test(t) && this.dest && !gnd) {
+      intent = "arrival_request"; facts = { guidance: this.guidance(s), weather: w };
+    } else facts = { note: "no matching procedure; answer briefly from the state" };
+    if (nn(s.lat)) { const ph = this.computePhase(s); this.role = this.computeRole(s, ph) || this.role; }
+    if (wantHandoff && spk) { const nw = this.speaker(); if (nw && nw.name !== spk.name) this.queued.push(this.ev("handoff", s, { from: spk.name, to: nw.name, to_freq_mhz: nw.freq_mhz }, spk)); }
+    return { kind: "pilot_reply", intent, pilot_said: text, speaker: spk || this.speaker(), state: stateReady(s) ? this.snapshot(s) : {}, facts };
+  }
+}
+
+// ------------------------------------------------------------------ flight plan (.fms, v11 format)
+function parseFms(text) {
+  const out = { cycle: null, adep: null, ades: null, depRwy: null, desRwy: null, sid: null, star: null, app: null, waypoints: [] };
+  const rw = v => (v || "").replace(/^RW/i, "") || null;
+  for (const raw of text.split(/\r?\n/)) {
+    const f = raw.trim().split(/\s+/), k = f[0];
+    if (k === "CYCLE") out.cycle = f[1] || null;
+    else if (k === "ADEP") out.adep = (f[1] || "").toUpperCase() || null;
+    else if (k === "ADES") out.ades = (f[1] || "").toUpperCase() || null;
+    else if (k === "DEPRWY") out.depRwy = rw(f[1]);
+    else if (k === "DESRWY") out.desRwy = rw(f[1]);
+    else if (k === "SID") out.sid = f[1] || null;
+    else if (k === "STAR") out.star = f[1] || null;
+    else if (k === "APP") out.app = f[1] || null;
+    else if (/^\d+$/.test(k) && f.length >= 6 && !Number.isNaN(+f[4]) && !Number.isNaN(+f[5]))
+      out.waypoints.push({ type: +k, id: f[1], via: f[2], alt: +f[3], lat: +f[4], lon: +f[5] });
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ wording
+const SYSTEM_PROMPT = `You are an air traffic controller in a flight simulator (X-Plane). The pilot is flying a sim for fun; this is practice only and never for real navigation.
+
+Rules:
+- Each user message is JSON: speaker (who you are right now), event, state (the aircraft), facts (everything you may state), and optionally pilot_said.
+- Use ONLY numbers and values found in facts or state. Never invent or recompute a heading, altitude, runway, wind, frequency or squawk. If a needed value is missing or null, say "unable" or "weather unknown" instead of guessing.
+- Speak as the controller named in speaker.name. Short, calm radio phraseology (ICAO style). One to three sentences.
+- If facts show the aircraft is too high, give the descent instruction using assign_alt_ft and descent_rate_fpm. If established on final, do not issue new headings.
+- NOTAMs are fictional; say so only if the pilot asks whether they are real.
+- Output the spoken words only, no quotes, no stage directions.`;
+
+// ATIS extras, only said when the weather has them (a real METAR does; the sim's own weather does not give these)
+const COVER_WORD = { FEW: "few", SCT: "scattered", BKN: "broken", OVC: "overcast", VV: "vertical visibility" };
+function degWord(c) { return c < 0 ? "minus " + Math.abs(c) : String(c); }
+function tempText(w) {
+  if (!w || w.temp_c === null || w.temp_c === undefined) return "";
+  return ` Temperature ${degWord(w.temp_c)}` + (w.dew_c === null || w.dew_c === undefined ? "" : `, dew point ${degWord(w.dew_c)}`) + ".";
+}
+function skyText(w) {
+  if (!w || !w.layers) return "";
+  if (!w.layers.length) return w.sky_clear ? " Sky clear." : "";
+  const lay = w.layers.map(l => `${COVER_WORD[l.cov]} ${l.ft} feet`).join(", ");
+  return ` Clouds ${lay}.` + (w.ceiling_ft !== null && w.ceiling_ft !== undefined ? ` Ceiling ${w.ceiling_ft} feet.` : "");
+}
+function windText(w) { return !w || w.wind_kt === null ? "wind unknown" : `wind ${String(w.wind_dir_mag || 360).padStart(3, "0")} degrees ${w.wind_kt} knots`; }
+const yn = v => (v === null ? "unknown" : v ? "yes" : "no");
+function renderFallback(ev) {
+  const k = ev.kind, f = ev.facts || {}, g = f.guidance || {}, h = x => String(x || 0).padStart(3, "0");
+  if (k === "atis") return f.text;
+  if (k === "handoff") return `Contact ${f.to} on ${f.to_freq_mhz}.`;
+  if (k === "arrival_checkin") return `${f.atis_letter ? "Information " + f.atis_letter : "Information"} received. Expect runway ${f.runway}, ${windText(f.weather)}. Fly heading ${h(g.heading_mag)}.`;
+  if (k === "vector") return g.mode === "established on final course" ? `Established on final, runway ${g.runway}.` : `Fly heading ${h(g.heading_mag)}, ${g.mode}.`;
+  if (k === "descent") return `Descend and maintain ${g.assign_alt_ft} feet, about ${g.descent_rate_fpm} feet per minute.`;
+  if (k === "cleared_to_land") return `Runway ${f.runway}, ${windText(f.weather)}, cleared to land.`;
+  if (k === "gear_check") return "Check gear down.";
+  if (k === "landed") return "Vacate the runway when able and contact ground.";
+  if (k === "airborne") return "Radar contact." + (f.climb_to ? ` Climb and maintain ${f.climb_to}.` : "");
+  if (k === "pilot_reply") {
+    const i = ev.intent;
+    if (i === "atis") return f.none_in_range ? (f.limit_nm ? `No ATIS within ${f.limit_nm} miles.` : "No ATIS available.") : f.text;
+    if (i === "weather") { const w = f.weather; const vis = w.vis_nm === null ? "visibility unknown" : `visibility ${w.vis_nm} nautical miles (${w.vis_sm} statute)`; return `${windText(w)}. Gusty: ${yn(w.gusty)}. Storms: ${yn(w.stormy)}. ${vis}.`; }
+    if (i === "notam") return (f.notams || []).length ? "NOTAMs: " + f.notams.map(n => n.text).join(" ") : "No NOTAMs.";
+    if (i === "startup") return "Startup approved. Report ready for IFR or VFR clearance.";
+    if (i === "clearance") return f.needs ? "Say IFR or VFR." : (f.rules === "VFR" ? `Squawk ${f.squawk}. Request taxi when ready.` : `Cleared ${f.rules}, squawk ${f.squawk}, climb ${f.initial_climb_ft} feet${f.expect_level ? ", expect " + f.expect_level + " ten minutes after departure" : ""}. Request taxi when ready.`);
+    if (i === "shutdown") return "Roger, flight plan closed. Thank you, good day.";
+    if (i === "taxi_in") return "Taxi to the gate" + (f.landed_runway ? ", vacate runway " + f.landed_runway + " when able" : "") + ", via the most efficient route at your discretion.";
+    if (i === "taxi") return `Taxi to holding point runway ${f.runway}, via the most efficient route at your discretion, hold short.`;
+    if (i === "not_ready") return `Unable, you are not at the runway yet. ${f.taxied ? "Taxi to the holding point" : "Request taxi, then hold short"} runway ${f.runway} and report ready.`;
+    if (i === "takeoff") return `Runway ${f.runway}, ${windText(f.weather)}, cleared for takeoff.`;
+    if (i === "approach_request") return f.needs_destination ? "Say where you wish to land." + (f.nearby && f.nearby.length ? " Nearby: " + f.nearby.map(x => `${x.name}, ${x.dist_nm} miles`).join("; ") + "." : "")
+      : f.too_far ? `Unable, ${f.destination} is ${f.distance_nm} miles away. Call again within ${f.limit_nm} miles.` : `Roger, approach approved for ${f.destination}.`;
+    if (i === "land_at") return `Roger, proceed direct ${f.airport}, expect runway ${f.runway}, ${windText(f.weather)}.`;
+    if (i === "land_at_unable") return `Unable ${f.airport}, ${f.reasons.join(" and ")}.` + (f.alternates && f.alternates.length ? " Alternates: " + f.alternates.map(x => `${x.name}, ${x.dist_nm} miles`).join("; ") + "." : "");
+    if (i === "divert_which") return f.nearby && f.nearby.length ? "Say the airport. Nearby: " + f.nearby.map(x => `${x.name}, ${x.dist_nm} miles`).join("; ") + "." : "Say the airport.";
+    if (i === "arrival_request" && f.guidance) return `Fly heading ${h(f.guidance.heading_mag)}, descend and maintain ${f.guidance.assign_alt_ft} feet.`;
+    return "Say again.";
+  }
+  return "Stand by.";
+}
+
+class Phraser {
+  constructor() { this.apiKey = ""; this.model = "claude-sonnet-5-5"; this.history = []; }
+  get live() { return !!this.apiKey; }
+  async say(ev) {
+    if (!this.live || ev.kind === "atis" || ev.intent === "atis") return renderFallback(ev);   // an ATIS is read word for word
+    const payload = { speaker: ev.speaker && ev.speaker.name, frequency: ev.speaker && ev.speaker.freq_mhz, event: ev.kind,
+                      intent: ev.intent, pilot_said: ev.pilot_said, state: ev.state, facts: ev.facts };
+    this.history.push({ role: "user", content: JSON.stringify(payload) });
+    this.history = this.history.slice(-12);
+    if (this.history[0].role !== "user") this.history.shift();
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": this.apiKey, "anthropic-version": "2023-06-01",
+                   "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: this.model, max_tokens: 200, system: SYSTEM_PROMPT, messages: this.history }),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      const text = (j.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+      this.history.push({ role: "assistant", content: text });
+      return text;
+    } catch (e) {
+      this.history.pop();
+      return `[Claude unavailable: ${e.message}] ` + renderFallback(ev);
+    }
+  }
+}
+
+// ------------------------------------------------------------------ demo flight (no sim needed)
+const CAL_APT = `I
+1100 Real California airports, positions from public data, runways and frequencies approximate, for demo only
+
+1 62 0 0 KSJC San Jose Intl
+1302 datum_lat 37.362995
+1302 datum_lon -121.928621
+100 45.00 1 0 0.15 1 3 0 12L 37.373873 -121.941794 0 0 3 0 0 1 30R 37.353719 -121.913633 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 12R 37.366407 -121.935415 0 0 3 0 0 1 30L 37.357981 -121.923642 0 0 3 0 0 1
+50 12165 ATIS San Jose Intl ATIS
+54 12400 TWR San Jose Intl Tower
+53 12170 GND San Jose Intl Ground
+55 12050 APP San Jose Intl Approach
+
+1 13 0 0 KSFO San Francisco Intl
+1302 datum_lat 37.618806
+1302 datum_lon -122.375417
+100 45.00 1 0 0.15 1 3 0 10L 37.625893 -122.393929 0 0 3 0 0 1 28R 37.613718 -122.355885 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 10R 37.623643 -122.394165 0 0 3 0 0 1 28L 37.611970 -122.357689 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 01L 37.609499 -122.381632 0 0 3 0 0 1 19R 37.628920 -122.371726 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 01R 37.607422 -122.379756 0 0 3 0 0 1 19L 37.629382 -122.368555 0 0 3 0 0 1
+50 11885 ATIS San Francisco Intl ATIS
+54 12050 TWR San Francisco Intl Tower
+53 12180 GND San Francisco Intl Ground
+55 12050 APP San Francisco Intl Approach
+
+1 9 0 0 KOAK Oakland Intl
+1302 datum_lat 37.721261
+1302 datum_lon -122.221151
+100 45.00 1 0 0.15 1 3 0 12 37.730898 -122.234682 0 0 3 0 0 1 30 37.711624 -122.207620 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 10L 37.725447 -122.230611 0 0 3 0 0 1 28R 37.719074 -122.210670 0 0 3 0 0 1
+50 12850 ATIS Oakland Intl ATIS
+54 11830 TWR Oakland Intl Tower
+53 12190 GND Oakland Intl Ground
+55 12090 APP Oakland Intl Approach
+
+1 6 0 0 KSQL San Carlos
+1302 datum_lat 37.511861
+1302 datum_lon -122.249531
+100 45.00 1 0 0.15 1 3 0 12 37.514261 -122.252891 0 0 3 0 0 1 30 37.509461 -122.246171 0 0 3 0 0 1
+54 11900 TWR San Carlos Tower
+
+1 7 0 0 KPAO Palo Alto
+1302 datum_lat 37.461121
+1302 datum_lon -122.115047
+100 45.00 1 0 0.15 1 3 0 13 37.463757 -122.117641 0 0 3 0 0 1 31 37.458485 -122.112453 0 0 3 0 0 1
+54 11860 TWR Palo Alto Tower
+
+1 135 0 0 KRHV Reid-Hillview
+1302 datum_lat 37.332861
+1302 datum_lon -121.819806
+100 45.00 1 0 0.15 1 3 0 13R 37.335542 -121.824160 0 0 3 0 0 1 31L 37.328853 -121.817588 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 13L 37.336761 -121.821918 0 0 3 0 0 1 31R 37.330288 -121.815558 0 0 3 0 0 1
+54 11980 TWR Reid-Hillview Tower
+
+1 257 0 0 KMRY Monterey Regional
+1302 datum_lat 36.586952
+1302 datum_lon -121.842783
+100 45.00 1 0 0.15 1 3 0 10R 36.589858 -121.855325 0 0 3 0 0 1 28L 36.582047 -121.831246 0 0 3 0 0 1
+50 12760 ATIS Monterey Regional ATIS
+54 11840 TWR Monterey Regional Tower
+55 11935 APP Monterey Regional Approach
+
+1 84 0 0 KSNS Salinas Municipal
+1302 datum_lat 36.662411
+1302 datum_lon -121.607154
+100 45.00 1 0 0.15 1 3 0 08 36.662698 -121.617395 0 0 3 0 0 1 26 36.662124 -121.596913 0 0 3 0 0 1
+54 11810 TWR Salinas Municipal Tower
+
+1 212 0 0 KSBP San Luis Obispo
+1302 datum_lat 35.237273
+1302 datum_lon -120.642603
+100 45.00 1 0 0.15 1 3 0 11 35.241698 -120.651274 0 0 3 0 0 1 29 35.232848 -120.633932 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 07 35.234732 -120.648936 0 0 3 0 0 1 25 35.236256 -120.635658 0 0 3 0 0 1
+50 12540 ATIS San Luis Obispo ATIS
+54 11970 TWR San Luis Obispo Tower
+
+1 261 0 0 KSMX Santa Maria
+1302 datum_lat 34.899944
+1302 datum_lon -120.458083
+100 45.00 1 0 0.15 1 3 0 12 34.905717 -120.465901 0 0 3 0 0 1 30 34.894171 -120.450265 0 0 3 0 0 1
+50 11965 ATIS Santa Maria ATIS
+54 12030 TWR Santa Maria Tower
+
+1 14 0 0 KSBA Santa Barbara
+1302 datum_lat 34.426192
+1302 datum_lon -119.841493
+100 45.00 1 0 0.15 1 3 0 07 34.425039 -119.851440 0 0 3 0 0 1 25 34.427345 -119.831546 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 15R 34.431301 -119.844880 0 0 3 0 0 1 33L 34.420416 -119.840592 0 0 3 0 0 1
+50 13265 ATIS Santa Barbara ATIS
+54 11970 TWR Santa Barbara Tower
+55 13210 APP Santa Barbara Approach
+
+1 45 0 0 KOXR Oxnard
+1302 datum_lat 34.200807
+1302 datum_lon -119.207226
+100 45.00 1 0 0.15 1 3 0 07 34.199673 -119.216979 0 0 3 0 0 1 25 34.201941 -119.197473 0 0 3 0 0 1
+54 11900 TWR Oxnard Tower
+
+1 802 0 0 KVNY Van Nuys
+1302 datum_lat 34.209806
+1302 datum_lon -118.489972
+100 45.00 1 0 0.15 1 3 0 16R 34.220503 -118.493106 0 0 3 0 0 1 34L 34.198809 -118.489419 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 16L 34.215396 -118.489606 0 0 3 0 0 1 34R 34.204516 -118.487757 0 0 3 0 0 1
+50 11845 ATIS Van Nuys ATIS
+54 11930 TWR Van Nuys Tower
+53 12170 GND Van Nuys Ground
+
+1 778 0 0 KBUR Burbank
+1302 datum_lat 34.200694
+1302 datum_lon -118.358667
+100 45.00 1 0 0.15 1 3 0 08 34.201023 -118.370058 0 0 3 0 0 1 26 34.200365 -118.347276 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 15 34.207693 -118.363701 0 0 3 0 0 1 33 34.192584 -118.357765 0 0 3 0 0 1
+50 13455 ATIS Burbank ATIS
+54 11870 TWR Burbank Tower
+53 12190 GND Burbank Ground
+55 11800 APP Burbank Approach
+
+1 128 0 0 KLAX Los Angeles Intl
+1302 datum_lat 33.942496
+1302 datum_lon -118.408049
+100 45.00 1 0 0.15 1 3 0 06L 33.939745 -118.422460 0 0 3 0 0 1 24R 33.947297 -118.394441 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 06R 33.937120 -118.423789 0 0 3 0 0 1 24L 33.945822 -118.391506 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 07L 33.941260 -118.427989 0 0 3 0 0 1 25R 33.945867 -118.388471 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 07R 33.939315 -118.425999 0 0 3 0 0 1 25L 33.943542 -118.389737 0 0 3 0 0 1
+50 13380 ATIS Los Angeles Intl ATIS
+54 13390 TWR Los Angeles Intl Tower
+53 12175 GND Los Angeles Intl Ground
+55 12430 APP Los Angeles Intl Approach
+
+1 60 0 0 KLGB Long Beach
+1302 datum_lat 33.817930
+1302 datum_lon -118.151891
+100 45.00 1 0 0.15 1 3 0 12 33.827091 -118.164137 0 0 3 0 0 1 30 33.808769 -118.139645 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 08L 33.819303 -118.162043 0 0 3 0 0 1 26R 33.818711 -118.141649 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 08R 33.817111 -118.160829 0 0 3 0 0 1 26L 33.816595 -118.143044 0 0 3 0 0 1
+50 12775 ATIS Long Beach ATIS
+54 12090 TWR Long Beach Tower
+53 12170 GND Long Beach Ground
+55 12430 APP Long Beach Approach
+
+1 56 0 0 KSNA John Wayne Orange County
+1302 datum_lat 33.675662
+1302 datum_lon -117.868233
+100 45.00 1 0 0.15 1 3 0 02L 33.669614 -117.874301 0 0 3 0 0 1 20R 33.682852 -117.864362 0 0 3 0 0 1
+100 45.00 1 0 0.15 1 3 0 02R 33.671739 -117.869651 0 0 3 0 0 1 20L 33.678443 -117.864618 0 0 3 0 0 1
+50 12600 ATIS John Wayne Orange County ATIS
+54 11990 TWR John Wayne Orange County Tower
+53 12170 GND John Wayne Orange County Ground
+55 12430 APP John Wayne Orange County Approach
+
+1 170 0 0 KSMO Santa Monica
+1302 datum_lat 34.015822
+1302 datum_lon -118.451306
+100 45.00 1 0 0.15 1 3 0 03 34.012261 -118.455174 0 0 3 0 0 1 21 34.019383 -118.447438 0 0 3 0 0 1
+50 11940 ATIS Santa Monica ATIS
+54 12010 TWR Santa Monica Tower
+
+99`;
+const SAMPLE_APT = `I
+1100 Fictional test airports, not real places
+1 0 0 0 ZZZZ Sample Intl
+1302 datum_lat 14.5000
+1302 datum_lon 121.0000
+100 45.00 1 0 0.15 1 3 0 06 14.4900 120.9800 0 0 3 0 0 1 24 14.5100 121.0200 0 0 3 0 0 1
+54 11850 TWR Sample Tower
+55 11900 APP Sample Approach
+53 12175 GND Sample Ground
+52 12125 DEL Sample Delivery
+
+1 0 0 0 ZZZY North Intl
+1302 datum_lat 15.5000
+1302 datum_lon 121.0000
+100 45.00 1 0 0.15 1 3 0 18 15.5100 121.0000 0 0 3 0 0 1 36 15.4900 121.0000 0 0 3 0 0 1
+54 11800 TWR North Tower
+55 11950 APP North Approach
+
+1 0 0 0 ZZZX South Regional
+1302 datum_lat 13.5000
+1302 datum_lon 121.0000
+100 30.00 1 0 0.15 1 3 0 09 13.5000 120.9800 0 0 3 0 0 1 27 13.5000 121.0200 0 0 3 0 0 1
+
+1 0 0 0 ZZZV Short Field
+1302 datum_lat 14.5000
+1302 datum_lon 118.5000
+100 45.00 1 0 0.15 1 3 0 06 14.4900 118.4800 0 0 3 0 0 1 24 14.5100 118.5200 0 0 3 0 0 1
+54 11780 TWR Short Tower
+55 11960 APP Short Approach
+
+1 0 0 0 ZZZT Mid Regional
+1302 datum_lat 14.5000
+1302 datum_lon 120.2000
+100 45.00 1 0 0.15 1 3 0 06 14.4900 120.1800 0 0 3 0 0 1 24 14.5100 120.2200 0 0 3 0 0 1
+54 11795 TWR Mid Tower
+55 11975 APP Mid Approach
+
+1 0 0 0 ZZZU East Far Intl
+1302 datum_lat 14.5000
+1302 datum_lon 123.1000
+100 45.00 1 0 0.15 1 3 0 06 14.4900 123.0800 0 0 3 0 0 1 24 14.5100 123.1200 0 0 3 0 0 1
+54 11790 TWR East Far Tower
+55 11970 APP East Far Approach
+
+1 0 0 0 ZZZW West Intl
+1302 datum_lat 14.5000
+1302 datum_lon 117.6000
+100 45.00 1 0 0.15 1 3 0 09 14.5000 117.5800 0 0 3 0 0 1 27 14.5000 117.6200 0 0 3 0 0 1
+54 11875 TWR West Tower
+55 11925 APP West Approach
+53 12150 GND West Ground
+52 12100 DEL West Delivery
+99
+`;
+
+// Ground elevation (ft) under the aircraft: the nearest airport's field elevation, fading to sea level over 15 NM.
+function terrainFn(db) {
+  return (lat, lon) => { const n = db.nearest(lat, lon, 1, 15); return n.length ? n[0][1].elev_ft * Math.max(0, 1 - n[0][0] / 15) : 0; };
+}
+class MockLink {
+  constructor(route, { gs_kt = 210, speedup = 1, variation = -1.5, wind = [240, 12], vis_m = 8000 } = {}) {
+    this.route = route; this.gs = gs_kt; this.speedup = speedup; this.var = variation; this.wind = wind; this.vis = vis_m;
+    [this.lat, this.lon, this.alt] = route[0]; this.leg = 1; this.done = false; this.simTime = 0; this.s = {}; this.com1_hz = 12125; this.com2_hz = 0; this.zulu0 = Math.floor(Date.now() / 1000) % 86400; this.brg = 0;
+    this.publish(0, null, 0);
+  }
+  publish(brg, aglFtVal, onGround) {
+    this.brg = brg;
+    Object.assign(this.s, { lat: this.lat, lon: this.lon, elev_m: this.alt / 3.28084, agl_m: (aglFtVal === null ? this.alt - (this.terrain ? this.terrain(this.lat, this.lon) : 0) : aglFtVal) / 3.28084,
+      ias_kt: this.gs, gs_ms: this.gs / 1.943844, true_psi: brg, mag_psi: mod(brg - this.var, 360), vs_fpm: -700, on_ground: onGround,
+      gear: this.alt < 3500 ? 1 : 0, flaps: 0, com1_hz: this.com1_hz, com2_hz: this.com2_hz, zulu_sec: (this.zulu0 + this.simTime) % 86400, wind_kt: this.wind[1], wind_dir_true: this.wind[0], vis_m: this.vis,
+      rain: 0, tstorm: 0, turb: 10, baro_inhg: 29.92 });
+  }
+  step(dt) { this.advance(dt * this.speedup); }
+  advance(dt) {                                    // dt in simulated seconds
+    this.simTime += dt;
+    if (this.frozen) return;                       // parked demo: time passes, aircraft stays put
+    if (this.leg >= this.route.length) { this.done = true; return; }
+    const [tl, tn, ta] = this.route[this.leg], d = haversineNm(this.lat, this.lon, tl, tn), move = this.gs * dt / 3600;
+    const brg = bearingDeg(this.lat, this.lon, tl, tn);
+    if (move >= d) { [this.lat, this.lon, this.alt] = [tl, tn, ta]; this.leg++; }
+    else { const fr = d ? move / d : 1; this.alt += (ta - this.alt) * fr; [this.lat, this.lon] = offsetPoint(this.lat, this.lon, brg, move); }
+    this.publish(brg, null, 0);
+  }
+  setGround(lat, lon, elevFt, hdgTrue, gs = 0) { [this.lat, this.lon, this.alt, this.gs] = [lat, lon, elevFt, gs]; this.publish(hdgTrue, 0, 1); }
+  latest() { return this.s; }
+  setCom1(mhz) { this.com1_hz = Math.round(mhz * 100); this.s.com1_hz = this.com1_hz; return Promise.resolve(true); }
+  setCom2(mhz) { this.com2_hz = mhz > 0 ? Math.round(mhz * 100) : 0; this.s.com2_hz = this.com2_hz; return Promise.resolve(true); }
+}
+
+// A whole gate-to-gate flight: hold, taxi, takeoff run, climb, cruise, descent, final, landing run, park.
+// Segments: hold {secs}, run {to, gs0, gs1} on the ground, move {to:[lat,lon,alt], gs} in the air.
+// `say` lists [seconds into segment, text] pilot calls that the page can send for you.
+class ScriptedFlight extends MockLink {
+  constructor(segs, opts) {
+    const f = segs[0];
+    super([[f.at[0], f.at[1], opts.startElev || 0], [f.at[0], f.at[1], opts.startElev || 0]], opts);
+    this.segs = segs; this.i = 0; this.segT = 0; this.started = false; this.sent = new Set(); this.outbox = []; this.canProceed = () => true; this.waiting = null;
+    [this.lat, this.lon, this.alt] = [f.at[0], f.at[1], opts.startElev || 0]; this.gs = 0; this.runTotal = 0; this.terrain = opts.terrain || null;
+    this.publish(f.hdg || 0, 0, 1);
+  }
+  popOutbox() { const o = this.outbox; this.outbox = []; return o; }
+  next() { this.i++; this.started = false; }
+  advance(dt) {
+    this.simTime += dt;
+    const seg = this.segs[this.i];
+    if (!seg) { this.done = true; return; }
+    if (!this.started) {
+      this.started = true; this.segT = 0; this.sent = new Set();
+      if (seg.kind === "run") this.runTotal = haversineNm(this.lat, this.lon, seg.to[0], seg.to[1]);
+    }
+    this.segT += dt;
+    (seg.say || []).forEach(([off, text], k) => { if (this.segT >= off && !this.sent.has(k)) { this.sent.add(k); this.outbox.push(text); } });
+    if (seg.kind === "hold") {
+      this.gs = 0; this.publish(this.brg, 0, 1);
+      if (this.segT >= seg.secs) {
+        if (seg.waitFor && !this.canProceed(seg.waitFor)) { this.waiting = seg.waitFor; return; }   // pilot has not made the request yet
+        this.waiting = null; this.next();
+      }
+      return;
+    }
+    const [tl, tn, ta] = seg.to, d = haversineNm(this.lat, this.lon, tl, tn), brg = bearingDeg(this.lat, this.lon, tl, tn);
+    if (seg.kind === "run") {
+      const fr = this.runTotal > 0 ? Math.min(1, Math.max(0, 1 - d / this.runTotal)) : 1;
+      this.gs = seg.gs0 + (seg.gs1 - seg.gs0) * fr;
+      const move = Math.max(this.gs, 3) * dt / 3600;
+      if (move >= d) { [this.lat, this.lon] = [tl, tn]; this.gs = seg.gs1; this.next(); }
+      else [this.lat, this.lon] = offsetPoint(this.lat, this.lon, brg, move);
+      if (seg.elev !== undefined) this.alt = seg.elev;
+      this.publish(brg, 0, 1);
+      return;
+    }
+    this.gs = seg.gs;
+    const move = this.gs * dt / 3600;
+    if (move >= d) { [this.lat, this.lon, this.alt] = [tl, tn, ta]; this.next(); }
+    else { const fr = d ? move / d : 1; this.alt += (ta - this.alt) * fr; [this.lat, this.lon] = offsetPoint(this.lat, this.lon, brg, move); }
+    this.publish(brg, null, 0);
+  }
+}
+
+// Fictional flight West Intl (ZZZW) -> Sample Intl (ZZZZ), about 200 NM, wind from 060 at 10 kt.
+function demoFullFlight(db, speedup, opts = {}) {
+  const wind = opts.wind || [60, 10], f = opts.factor || 1, destIcao = opts.dest || "ZZZZ", orgIcao = opts.origin || "ZZZW";   // opts.wind = [true direction, kt] from a real METAR
+  const org = db.get(orgIcao), dst = db.get(destIcao);
+  const r1 = pickRunway(org, wind[0], wind[1])[0];
+  // landing runway: the end whose final approach course lies on the side the aircraft arrives from, so the scripted path never doubles back
+  const bOrigin = bearingDeg(dst.lat, dst.lon, org.lat, org.lon);
+  let r2 = dst.runways.reduce((a, b) => (Math.abs(angleDiff(mod(b.true_hdg + 180, 360), bOrigin)) < Math.abs(angleDiff(mod(a.true_hdg + 180, 360), bOrigin)) ? b : a));
+  // with a real destination wind (opts.destWind), switch to the opposite end when the geometric end would have more than 3 kt of tailwind
+  if (opts.destWind && opts.destWind[1] >= 3 && opts.destWind[0] !== null) {
+    const hw = x => opts.destWind[1] * Math.cos(rad(angleDiff(opts.destWind[0], x.true_hdg))), alt = dst.runways.find(x => x.ident === r2.other);
+    if (alt && hw(r2) < -3 && hw(alt) > hw(r2)) r2 = alt;
+  }
+  const far1 = org.runways.find(r => r.ident === r1.other);
+  const gate = offsetPoint(r1.lat, r1.lon, r1.true_hdg + 90, 0.4);
+  const brgOD = bearingDeg(r1.lat, r1.lon, dst.lat, dst.lon);
+  const distOD = haversineNm(r1.lat, r1.lon, dst.lat, dst.lon);
+  const cruiseAlt0 = cruiseLevel(distOD, brgOD, opts.rules || "IFR").ft;
+  const climbPt = offsetPoint(r1.lat, r1.lon, brgOD, Math.min(cruiseAlt0 / 1000 * 1.4, distOD * 0.25));
+  const w1 = offsetPoint(r2.lat, r2.lon, r2.true_hdg + 180 + 5, Math.min(distOD * 0.45, 10 + 3 * (cruiseAlt0 - 3000) / 1000 - 12));
+  const cruiseAlt = cruiseAlt0;                                              // climb to this, level off, then descend from the far waypoint
+  const fix = offsetPoint(r2.lat, r2.lon, r2.true_hdg + 180, 10);
+  const far2 = dst.runways.find(r => r.ident === r2.other), e1 = org.elev_ft || 0, e2 = dst.elev_ft || 0;
+  const segs = [
+    { kind: "hold", at: [...gate, 0], hdg: r1.true_hdg, secs: 40, waitFor: "taxi", say: [[3, "request startup"], [12, "request IFR clearance"], [25, "request taxi"]] },
+    { kind: "run", to: [r1.lat, r1.lon], gs0: 15, gs1: 15 },
+    { kind: "hold", secs: 8, waitFor: "takeoff", say: [[1, "ready for departure"]] },
+    { kind: "run", to: [far1.lat, far1.lon], gs0: 15, gs1: 150, elev: e1 },
+    { kind: "move", to: [...climbPt, cruiseAlt], gs: 200 * f },
+    { kind: "move", to: [...w1, cruiseAlt], gs: 280 * f, say: [[0, "what are the winds, gusts, storms and visibility"]] },
+    { kind: "move", to: [...fix, e2 + 3000], gs: 210 * f },
+    { kind: "move", to: [r2.lat, r2.lon, e2 + 40], gs: 140 },
+    { kind: "run", to: [far2.lat, far2.lon], gs0: 120, gs1: 0, elev: e2 },
+    { kind: "hold", secs: 10, say: [[3, "parked, shutting down"]] },
+  ];
+  const link = new ScriptedFlight(segs, { speedup, wind, variation: -1.5, startElev: e1, terrain: terrainFn(db), ...(opts.vis ? { vis_m: opts.vis } : {}) });
+  link.plan = { origin: orgIcao, dest: destIcao, destRunway: r2.ident };
+  link.destIcao = destIcao; link.originIcao = orgIcao;
+  return link;
+}
+
+// Simulated gate-to-gate seconds for a pair at base speeds (used for the estimate in the dropdown).
+function flightSeconds(db, origin, dest, factor = 1, rules = "IFR") {
+  const l = demoFullFlight(db, 1, { origin, dest, factor, rules });
+  let n = 0; while (!l.done && n++ < 20000) l.advance(5);
+  return l.simTime;
+}
+
+// Re-plans a scripted demo flight from where it is now to a new destination (used when the pilot changes the landing airport).
+function redirectScripted(link, db, destIcao, rwIdent) {
+  const dst = db.get(destIcao), s = link.latest();
+  const bOrig = bearingDeg(dst.lat, dst.lon, s.lat, s.lon);
+  const r2 = (rwIdent && dst.runways.find(r => r.ident === rwIdent)) || dst.runways.reduce((a, b) => (Math.abs(angleDiff(mod(b.true_hdg + 180, 360), bOrig)) < Math.abs(angleDiff(mod(a.true_hdg + 180, 360), bOrig)) ? b : a));
+  const far2 = dst.runways.find(r => r.ident === r2.other);
+  const e2 = dst.elev_ft || 0, dist = haversineNm(link.lat, link.lon, dst.lat, dst.lon), fix = offsetPoint(r2.lat, r2.lon, r2.true_hdg + 180, 10), segs = [];
+  if (dist > 25) { const d1 = Math.min(45, dist * 0.6), w1 = offsetPoint(r2.lat, r2.lon, r2.true_hdg + 185, d1); segs.push({ kind: "move", to: [...w1, Math.min(link.alt, e2 + 3000 + (d1 - 10) * 333)], gs: 220 }); }
+  segs.push({ kind: "move", to: [...fix, e2 + 3000], gs: 210 }, { kind: "move", to: [r2.lat, r2.lon, e2 + 40], gs: 140 },
+    { kind: "run", to: [far2.lat, far2.lon], gs0: 120, gs1: 0, elev: e2 }, { kind: "hold", secs: 10, say: [[3, "parked, shutting down"]] });
+  link.segs = segs; link.i = 0; link.started = false; link.waiting = null; link.destIcao = destIcao;
+}
+
+function demoArrival(db, speedup, destIcao = "ZZZZ", wind = [240, 12], vis_m = 8000) {
+  const z = db.get(destIcao), rw = pickRunway(z, wind[0], wind[1])[0];      // the mock sim's wind is 240 at 12 kt unless a real METAR wind is passed
+  const start = offsetPoint(rw.lat, rw.lon, 20, 75), w1 = offsetPoint(rw.lat, rw.lon, rw.true_hdg + 185, 45), fix = offsetPoint(rw.lat, rw.lon, rw.true_hdg + 180, 10);
+  const e2 = z.elev_ft || 0, l = new MockLink([[...start, 20000], [...w1, 20000], [...fix, e2 + 3000], [rw.lat, rw.lon, e2 + 40]], { speedup, wind, vis_m }); l.terrain = terrainFn(db); return l;
+}
+function demoParked(db, icao = "ZZZZ", wind = [240, 12], vis_m = 8000) {
+  const ap = db.get(icao), rw = pickRunway(ap, wind[0], wind[1])[0];
+  const link = new MockLink([[ap.lat, ap.lon, 0], [ap.lat, ap.lon, 0]], { wind, vis_m });
+  link.setGround(ap.lat, ap.lon, ap.elev_ft || 0, rw.true_hdg);
+  link.frozen = true;
+  return link;
+}
+
+// ------------------------------------------------------------------ X-Plane 12 Web API link
+class WebApiLink {
+  constructor(host = "localhost", port = 8086) {
+    this.base = `http://${host}:${port}/api/v3`; this.wsUrl = `ws://${host}:${port}/api/v3`;
+    this.s = {}; this.byId = {}; this.report = {}; this.ids = {}; this.status = "idle"; this.error = null; this.reqId = 0; this.stopped = false;
+  }
+  latest() { return this.s; }
+  async lookup(name) {
+    const r = await fetch(`${this.base}/datarefs?filter[name]=${encodeURIComponent(name)}&fields=id,name`);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    return j.data && j.data.length ? j.data[0].id : null;
+  }
+  async resolve() {
+    this.byId = {}; this.report = {};
+    for (const [field, cands] of Object.entries(FIELDS)) {
+      this.report[field] = null;
+      for (const [name, scale] of cands) {
+        const [base, idx] = splitIndex(name);
+        const id = await this.lookup(base);
+        if (id !== null) { this.byId[String(id)] = { field, scale, idx, id }; this.report[field] = name; this.ids[field] = id; break; }
+      }
+    }
+  }
+  reportText() { return Object.keys(FIELDS).map(f => f.padEnd(14) + (this.report[f] || "NOT RESOLVED")).join("\n"); }
+  async connect(onStatus) {
+    const set = (st, err) => { this.status = st; this.error = err || null; if (onStatus) onStatus(st, err); };
+    this.stopped = false;
+    while (!this.stopped) {
+      try {
+        set("resolving");
+        await this.resolve();
+        if (!Object.values(this.report).some(Boolean)) { set("waiting for a loaded flight"); await new Promise(r => setTimeout(r, 3000)); continue; }
+        await new Promise((resolve, reject) => {
+          const ws = this.ws = new WebSocket(this.wsUrl);
+          ws.onopen = () => {
+            const params = Object.values(this.byId).map(i => (i.idx === null ? { id: i.id } : { id: i.id, index: i.idx }));
+            ws.send(JSON.stringify({ req_id: ++this.reqId, type: "dataref_subscribe_values", params: { datarefs: params } }));
+            set("connected");
+          };
+          ws.onmessage = ev => {
+            const m = JSON.parse(ev.data);
+            if (m.type !== "dataref_update_values") return;
+            for (const [key, val0] of Object.entries(m.data)) {
+              const info = this.byId[key.trim()]; if (!info) continue;
+              const val = Array.isArray(val0) ? val0[0] : val0;
+              if (typeof val === "number") this.s[info.field] = val * info.scale;
+            }
+          };
+          ws.onerror = () => reject(new Error("WebSocket error"));
+          ws.onclose = () => resolve();
+        });
+        set("disconnected, retrying");
+      } catch (e) {
+        set("cannot reach X-Plane", e.message);
+      }
+      if (!this.stopped) await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  stop() { this.stopped = true; if (this.ws) this.ws.close(); }
+  async setRadio(field, mhz) {
+    const id = this.ids[field];
+    if (id === undefined) return false;
+    const r = await fetch(`${this.base}/datarefs/${id}/value`, { method: "PATCH", headers: { "content-type": "application/json" },
+                                                                 body: JSON.stringify({ data: Math.round(mhz * 100) }) });
+    return r.ok;
+  }
+  setCom1(mhz) { return this.setRadio("com1_hz", mhz); }
+  setCom2(mhz) { return this.setRadio("com2_hz", mhz); }
+}
+
+if (typeof module !== "undefined") {
+  module.exports = { haversineNm, bearingDeg, offsetPoint, alongCross, AirportDB, Controller, pickRunway, summarizeWeather, parseMetar, extractMetar,
+    generateNotams, closedRunways, parseFms, renderFallback, MockLink, ScriptedFlight, demoFullFlight, flightSeconds, cruiseLevel, ATIS_NM, NATO, redirectScripted, REQUEST_NM, demoArrival, demoParked, SAMPLE_APT, CAL_APT, WebApiLink, Phraser, FIELDS };
+}
+// ==== CORE END
+
+</script>
+<script>
+// UI for the browser version. Uses the functions defined in core.js (inlined before this file).
+(() => {
+  const $ = id => document.getElementById(id);
+  $("boot").hidden = true;   // the script is running, so hide the "Starting..." warning
+  let db = new AirportDB(), ctl = null, link = null, timer = null, tuneKey = null, buttonKey = "", queue = Promise.resolve(), pendingHandoffs = 0, paused = false, plan = null, waitShown = null;
+  const phraser = new Phraser();
+
+  function line(kind, who, text) {
+    const d = document.createElement("div");
+    d.className = "line " + kind;
+    if (who) { const w = document.createElement("span"); w.className = "who"; w.textContent = who; d.appendChild(w); }
+    const t = document.createElement("span"); t.className = "txt"; t.textContent = text; d.appendChild(t);
+    const log = $("log"); log.appendChild(d); log.scrollTop = log.scrollHeight;
+  }
+  const sys = text => line("sys", "", text);
+  const enqueue = fn => { queue = queue.then(fn).catch(e => sys("Error: " + e.message)); };
+  const whoOf = sp => (sp ? `${sp.name} ${sp.freq_mhz}` : "No controller");
+
+  // ---- voice: browser speech plus a radio click before and a squelch tail after each call
+  let actx = null, speechQ = Promise.resolve();
+  function audio() {
+    try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); } catch (e) { actx = null; }
+    return actx;
+  }
+  function noiseBurst(ms, level, lo, hi) {
+    const ac = audio(); if (!ac) return Promise.resolve();
+    const n = Math.max(1, Math.floor(ac.sampleRate * ms / 1000)), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);          // fades out, like a squelch tail
+    const src = ac.createBufferSource(); src.buffer = buf;
+    const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = lo;
+    const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = hi;
+    const g = ac.createGain(); g.gain.value = level;
+    src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(ac.destination); src.start();
+    return new Promise(r => setTimeout(r, ms));
+  }
+  const fx = () => $("radiofx").checked;
+  function loadVoices() {
+    const sel = $("voice"); if (!window.speechSynthesis) return;
+    const vs = window.speechSynthesis.getVoices(); if (!vs.length) return;
+    let saved = ""; try { saved = localStorage.getItem("patc_voice") || ""; } catch (e) { /* ignore */ }
+    const cur = sel.value || saved;
+    sel.textContent = ""; sel.add(new Option("Default voice", ""));
+    vs.slice().sort((a, b) => (/natural/i.test(b.name) - /natural/i.test(a.name)) || a.name.localeCompare(b.name))
+      .forEach(v => sel.add(new Option(v.name + " (" + v.lang + ")", v.name)));
+    sel.value = [...sel.options].some(o => o.value === cur) ? cur : "";
+  }
+  function utter(text) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = parseFloat($("vrate").value) || 1.05; u.pitch = parseFloat($("vpitch").value) || 1;
+    const name = $("voice").value; if (name) { const v = window.speechSynthesis.getVoices().find(x => x.name === name); if (v) u.voice = v; }
+    return u;
+  }
+  function speak(text) {
+    if (!$("speak").checked || !window.speechSynthesis) return;
+    speechQ = speechQ.then(async () => {
+      if (fx()) await noiseBurst(70, 0.25, 600, 3500);                               // mic key-up click and a little hiss
+      await new Promise(res => { const u = utter(text); u.onend = u.onerror = res; setTimeout(res, 4000 + text.length * 120); window.speechSynthesis.speak(u); });   // timeout so a silent failure never blocks the queue
+      if (fx()) await noiseBurst(140, 0.18, 500, 3200);                              // squelch tail
+    }).catch(() => {});
+  }
+  if (window.speechSynthesis) { loadVoices(); window.speechSynthesis.addEventListener("voiceschanged", loadVoices); }
+  async function deliver(ev) {
+    const text = await phraser.say(ev);
+    line("atc", whoOf(ev.speaker), text);
+    speak(text);
+  }
+
+  function applyPlan() {
+    if (!plan || !ctl) return;
+    const p = plan;
+    if (!p.ades) { sys("That flight plan has no destination (ADES line)."); plan = null; return; }
+    $("dest").value = p.ades;
+    const ok = ctl.setDest(p.ades);
+    let msg = `Flight plan: ${p.adep || "?"} to ${p.ades}` + (p.desRwy ? `, runway ${p.desRwy}` : "") + (p.star ? `, STAR ${p.star}` : "") + (p.app ? `, approach ${p.app}` : "") + (p.cycle ? ` (cycle ${p.cycle})` : "") + ".";
+    if (!ok) msg += ` ${p.ades} is not in the loaded airports, so approach service will not work until it is.`;
+    else if (p.desRwy && !ctl.setDestRunway(p.desRwy)) msg += ` Runway ${p.desRwy} was not found at ${p.ades}; the controller will choose by wind.`;
+    ctl.plan = p; plan = null; buttonKey = "";
+    sys(msg);
+  }
+
+  function ensureController() {
+    if (!db.airports.size) { sys("Load your airports first (Setup, step 1), or use the built-in test airports."); return false; }
+    if (!ctl) {
+      ctl = new Controller(db, { gate_nm: parseFloat($("gate").value) || 60 });
+      const d = $("dest").value.trim();
+      if (d && !ctl.setDest(d)) sys("Destination " + d + " is not in the loaded airports.");
+      applyPlan();
+    }
+    return true;
+  }
+
+  async function loadFiles(files) {
+    if (!files.length) return;
+    db = new AirportDB(); ctl = null;
+    const boxes = [];  // keep every airport; only runways, frequencies and position are stored
+    for (const f of files) {
+      $("airportInfo").textContent = "Reading " + f.name + " ...";
+      await db.loadFile(f, boxes, n => { $("airportInfo").textContent = "Reading " + f.name + " ... " + Math.round(n / 1e6) + " MB"; });
+    }
+    $("airportInfo").textContent = db.airports.size + " airports loaded.";
+    ensureController();
+  }
+
+  function useSample() {
+    db = new AirportDB(); db.loadText(sceneryText(), []); ctl = null;
+    $("airportInfo").textContent = $("scenery").value === "cal" ? "Built-in California demo airports loaded (approximate data)." : "Built-in test airports loaded (ZZZZ, ZZZY, ZZZX are fictional).";
+  }
+
+  function currentSpeed() { const c = parseFloat($("speedCustom").value); return c > 0 ? c : (parseFloat($("speed").value) || 20); }
+
+  function demoRules() { const r = document.querySelector('input[name=rules]:checked'); return r ? r.value : null; }
+  try { const v = localStorage.getItem("patc_scenery"); if (v === "cal" || v === "zzz") $("scenery").value = v; } catch (e) { /* ignore */ }
+  function sceneryText() { return $("scenery").value === "zzz" ? SAMPLE_APT : CAL_APT; }
+  let demoDb = new AirportDB(); demoDb.loadText(sceneryText(), []);
+  const aptLabel = icao => icao + " " + demoDb.get(icao).name;
+  function fillDemoAirports() {
+    const from = $("demoFrom"), to = $("demoTo"), prevTo = to.value;
+    if (!from.options.length) { for (const icao of [...demoDb.airports.keys()].sort()) from.add(new Option(aptLabel(icao), icao)); from.value = $("scenery").value === "cal" ? "KSJC" : "ZZZW"; }
+    to.textContent = ""; to.add(new Option("Choose a destination...", ""));
+    const o = demoDb.get(from.value);
+    for (const icao of [...demoDb.airports.keys()].sort()) {
+      if (icao === from.value) continue;
+      const a = demoDb.get(icao), nm = Math.round(haversineNm(o.lat, o.lon, a.lat, a.lon)), min = Math.round(flightSeconds(demoDb, from.value, icao, 1) / 60);
+      to.add(new Option(aptLabel(icao) + " - " + nm + " NM, about " + min + " min", icao));
+    }
+    to.value = [...to.options].some(x => x.value === prevTo) ? prevTo : "";
+  }
+  function syncRules() {
+    const r = demoRules(), dest = $("demoTo").value;
+    $("demoParked").disabled = !r;
+    $("demoFull").disabled = $("demoArrival").disabled = !(r && dest);
+    $("rulesHint").textContent = r ? r + " flight." : "Pick IFR or VFR to enable the demos.";
+    $("flenHint").textContent = dest ? "" : "Pick a destination to enable the full flight and arrival demos.";
+  }
+
+  // ---- real METAR snapshot pasted from fetch_metar.py (works even when the browser blocks live fetches)
+  const metarSnap = {};   // ICAO -> { w: parsed weather, raw }
+  function applyMetarSnap() {
+    if (!ctl) return;
+    for (const [icao, m] of Object.entries(metarSnap)) ctl.metars[icao] = { w: m.w, raw: m.raw, t: Date.now() + 1e12 };   // far-future stamp: never treated as stale, never re-fetched
+  }
+  // Wind / visibility the scripted demo should use, taken from the METARs for the departure and destination airports.
+  function demoWeatherOpts(from, to) {
+    const o = {};
+    if (!metarOn()) return o;
+    const mo = metarSnap[from] && metarSnap[from].w, md = metarSnap[to] && metarSnap[to].w;
+    if (mo && mo.wind_kt !== null) o.wind = [mo.wind_dir_true === null ? 0 : mo.wind_dir_true, mo.wind_kt];
+    if (mo && mo.vis_m !== null) o.vis = mo.vis_m;
+    if (md && md.wind_kt !== null) { o.destWind = [md.wind_dir_true === null ? 0 : md.wind_dir_true, md.wind_kt]; if (md.vis_m !== null) o.destVis = md.vis_m; }
+    return o;
+  }
+  function loadMetarText(text) {
+    const re = /\b(?:METAR |SPECI )?([A-Z]{4}) (\d{6})Z [^\n\r"<]+/g;
+    let m, n = 0; const got = [];
+    while ((m = re.exec(text))) {
+      const raw = m[0].replace(/^(?:METAR |SPECI )/, "").trim(), icao = m[1];
+      metarSnap[icao] = { w: parseMetar(raw, 0), raw }; n++; got.push(icao + " " + m[2].slice(0, 2) + "/" + m[2].slice(2, 4) + ":" + m[2].slice(4) + "Z");
+    }
+    return { n, got };
+  }
+  function metarPasteLoad(quiet) {
+    const r = loadMetarText($("metarPaste").value), out = $("metarPasteStatus");
+    out.style.whiteSpace = "pre-wrap";
+    if (!r.n) { out.textContent = "No METAR lines found in what you pasted. Paste the output of fetch_metar.py (lines that look like: METAR KSJC 211753Z 00000KT 10SM ...)."; return; }
+    try { localStorage.setItem("patc_metar_paste", $("metarPaste").value); } catch (e) { /* ignore */ }
+    $("wxsrc").value = "metar"; try { localStorage.setItem("patc_wxsrc", "metar"); } catch (e) { /* ignore */ }
+    if (ctl) { applyMetarSnap(); ctl.useMetar = true; }
+    out.textContent = "Loaded " + r.n + " METAR" + (r.n === 1 ? "" : "s") + " (day/time): " + r.got.join(", ") + ".\nWeather source is now real METAR. Start a demo flight to use it (a demo already running keeps its wind but uses these for ATIS and radio calls).";
+    if (!quiet) sys("Loaded " + r.n + " real METARs. Start a demo flight to use them.");
+  }
+  $("metarLoad").addEventListener("click", () => metarPasteLoad(false));
+  $("metarClear").addEventListener("click", () => {
+    for (const k of Object.keys(metarSnap)) { delete metarSnap[k]; if (ctl) delete ctl.metars[k]; }
+    $("metarPaste").value = ""; try { localStorage.removeItem("patc_metar_paste"); } catch (e) { /* ignore */ }
+    $("metarPasteStatus").textContent = "Pasted METARs cleared.";
+  });
+  try { const v = localStorage.getItem("patc_metar_paste"); if (v) { $("metarPaste").value = v; loadMetarText(v); } } catch (e) { /* ignore */ }
+
+  function startDemo(kind) {
+    const rules = demoRules(); if (!rules) { syncRules(); return; }
+    const from = $("demoFrom").value, to = $("demoTo").value;
+    if (kind !== "parked" && !to) { syncRules(); return; }
+    if (kind === "full" && to === from) { sys("Departure and destination are the same. Pick a different destination."); return; }
+    atisHeard.clear(); atisKey = null;
+    stopLink(); useSample(); ctl = new Controller(db, {}); ctl.clr.rules = rules; tuneKey = null; paused = false; $("pause").textContent = "Pause";
+    const speed = currentSpeed();
+    for (const icao of [from, to].filter(Boolean)) ctl.notams[icao] = generateNotams(db.get(icao)).filter(n => n.kind !== "closed");  // keep the scripted runways open
+    $("dest").value = kind === "parked" ? "" : to;
+    applyMetarSnap(); ctl.useMetar = metarOn();
+    const wxOpts = demoWeatherOpts(from, to);
+    if (kind === "full") {
+      ctl.setDest(to); link = demoFullFlight(db, speed, { origin: from, dest: to, rules, ...wxOpts });
+      if (link.plan && link.plan.destRunway) ctl.setDestRunway(link.plan.destRunway);   // the scripted path lands on this runway
+      link.canProceed = key => $("autoReq").checked || !!(ctl.clr && ctl.clr[key]);
+      waitShown = null;
+      const mins = Math.round(flightSeconds(db, from, to, 1, rules) / 60);
+      sys("Demo full flight, " + rules + ": " + aptLabel(from) + " to " + aptLabel(to) + ", about " + mins + " minutes gate to gate (simulated time), started at x" + speed + ". It runs gate to gate: startup, clearance, taxi, takeoff, climb, cruise, descent, approach, landing, parking.");
+    } else if (kind === "arrival") {
+      ctl.setDest(to); link = demoArrival(db, speed, to, wxOpts.destWind || undefined, wxOpts.destVis || undefined);
+      sys("Demo arrival (" + rules + ") to " + aptLabel(to) + " started at x" + speed + ". Watch the controller hand you over and vector you in.");
+    } else { link = demoParked(db, from, wxOpts.wind || undefined, wxOpts.vis || undefined); sys("Demo: parked at " + aptLabel(from) + " (" + rules + "). Use the buttons to ask for startup, clearance, taxi and takeoff. Set the destination in the Live tab or the box above."); }
+    startTimer();
+  }
+
+  function stopLink() { if (link && link.stop) link.stop(); link = null; if (timer) clearInterval(timer); timer = null; }
+
+  function connect() {
+    if (!ensureController()) return;
+    atisHeard.clear(); atisKey = null;
+    stopLink(); tuneKey = null;
+    link = new WebApiLink($("host").value.trim() || "localhost", parseInt($("port").value, 10) || 8086);
+    let lastErr = null;
+    link.connect((st, err) => {
+      $("simStatus").textContent = st;
+      if (err && err !== lastErr) {   // say it once, not on every retry
+        lastErr = err;
+        sys(`Can't reach X-Plane (${err}). Check that X-Plane 12 is running with a flight loaded and "Disable Incoming Traffic" is off. If both are fine, the browser itself may be blocking the request (a "CORS" block). In that case press F12, open Console, and send me what it says.`);
+      }
+      if (st === "connected") lastErr = null;
+    });
+    startTimer();
+  }
+
+  function startTimer() { if (timer) clearInterval(timer); timer = setInterval(onTick, 1000); onTick(); }
+
+  function fmtTime(sec) { const m = Math.floor(sec / 60), s = Math.floor(sec % 60); return m + ":" + String(s).padStart(2, "0"); }
+
+  function handle(events) {
+    for (const ev of events) {
+      if (ev.kind === "handoff") pendingHandoffs++;
+      enqueue(async () => { try { await deliver(ev); } finally { if (ev.kind === "handoff") pendingHandoffs--; } });
+    }
+  }
+
+  function onTick() {
+    if (!link || !ctl) return;
+    const sim = link.simTime !== undefined;
+    if (!sim) { handle(ctl.update(link.latest(), Date.now() / 1000)); refresh(link.latest()); return; }
+    if (!paused && !link.done) {
+      // advance in small simulated steps (max 5 s each) so fast speeds never skip a phase
+      const speed = currentSpeed(), n = Math.max(1, Math.ceil(speed / 5)), sub = speed / n;
+      for (let k = 0; k < n && !link.done; k++) {
+        link.advance(sub);
+        handle(ctl.update(link.latest(), link.simTime));
+        if (link.segs && ctl.dest && ctl.diverted && ctl.dest.icao !== link.destIcao) { redirectScripted(link, db, ctl.dest.icao, ctl.destRwy && ctl.destRwy.ident); sys("Demo aircraft re-routed to " + ctl.dest.name + "."); }
+        if (link.waiting && link.waiting !== waitShown && !$("autoReq").checked) {
+          waitShown = link.waiting;
+          sys(link.waiting === "taxi" ? "The demo is waiting at the gate. Press Request startup, a clearance, then Request taxi." : "The demo is holding short of the runway. Press Ready for departure.");
+        }
+        if (link.popOutbox) for (const text of link.popOutbox()) if ($("autoReq").checked) send(text.replace(/\bIFR\b/, demoRules() || "IFR"));
+      }
+    }
+    $("simStatus").textContent = link.done ? "demo finished at " + fmtTime(link.simTime) : (paused ? "paused at " : "demo ") + fmtTime(link.simTime);
+    refresh(link.latest());
+  }
+
+  // ATIS: show the nearest one, and play it when COM2 is tuned to its frequency (once per tuning and again when the letter changes)
+  let atisKey = null; const atisHeard = new Set();
+  const staticWx = () => $("staticwx").checked;
+  try { const v = localStorage.getItem("patc_static"); if (v !== null) $("staticwx").checked = v === "1"; } catch (e) { /* ignore */ }
+  $("staticwx").addEventListener("change", () => { try { localStorage.setItem("patc_static", staticWx() ? "1" : "0"); } catch (e) { /* ignore */ } sys(staticWx() ? "Static weather: ATIS on request at any distance." : "Real weather: ATIS only within " + ATIS_NM + " NM."); });
+  // read the ATIS automatically at the departure airport and when the destination is inside the ATIS distance
+  function autoAtis(s) {
+    let ap = null;
+    if (["PARKED", "TAXI"].includes(ctl.phase) && !ctl.arrived()) { const n = ctl.db.nearest(s.lat, s.lon, 1, 6); ap = n.length ? n[0][1] : null; }
+    else if (!["PARKED", "TAXI", "TAKEOFF", "ROLLOUT", "TAXI_IN"].includes(ctl.phase) && ctl.dest && ctl.distDest(s) <= ATIS_NM) ap = ctl.dest;
+    if (!ap) return;
+    const info = ctl.atisInfo(s, ap), key = ap.icao + info.letter;
+    if (atisHeard.has(key)) return;
+    atisHeard.add(key); const ev = ctl.atisEvent(s, ap); enqueue(() => deliver(ev));
+  }
+  // ---- COM2 radio: tune with the dials or buttons, switch the receiver on, and the ATIS on that frequency plays
+  let com2 = null, lastSimC2 = undefined, rcv = false, c2Timer = null, c2Warned = false;
+  const kHzOf = m => Math.round(m * 1000);
+  function setCom2(mhz, quiet) {
+    com2 = Math.round(mhz * 1000) / 1000; atisKey = null; paintCom2();
+    clearTimeout(c2Timer);
+    c2Timer = setTimeout(() => { if (link && link.setCom2) link.setCom2(com2).then(ok => { if (!ok && !c2Warned) { c2Warned = true; sys("Could not set COM2 in the sim. The page still listens on the frequency you dialled."); } }).catch(() => { if (!c2Warned) { c2Warned = true; sys("Could not set COM2 in the sim. The page still listens on the frequency you dialled."); } }); }, 250);
+  }
+  function stepMhz(d) { const f = kHzOf(com2 === null ? 118000 : com2); let m = Math.floor(f / 1000) + d; if (m > 136) m = 118; if (m < 118) m = 136; setCom2(m + (f % 1000) / 1000); }
+  function stepKhz(d) { const f = kHzOf(com2 === null ? 118000 : com2); let k = (f % 1000) + 25 * d; if (k > 975) k = 0; if (k < 0) k = 975; setCom2(Math.floor(f / 1000) + k / 1000); }
+  function paintCom2() {
+    $("c2disp").textContent = com2 === null ? "---.---" : com2.toFixed(3);
+    const f = kHzOf(com2 === null ? 118000 : com2);
+    $("dialMhzK").style.transform = "rotate(" + ((Math.floor(f / 1000) - 118) * 20) + "deg)";
+    $("dialKhzK").style.transform = "rotate(" + ((f % 1000) / 25 * 9) + "deg)";
+    $("dialMhz").setAttribute("aria-valuenow", String(Math.floor(f / 1000))); $("dialKhz").setAttribute("aria-valuenow", String(f % 1000));
+    $("rcv").setAttribute("aria-pressed", String(rcv));
+  }
+  function makeDial(el, step) {
+    let last = null, acc = 0;
+    const ang = (e, r) => Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI;
+    el.addEventListener("pointerdown", e => { last = ang(e, el.getBoundingClientRect()); acc = 0; el.setPointerCapture(e.pointerId); });
+    el.addEventListener("pointermove", e => { if (last === null) return; const a = ang(e, el.getBoundingClientRect()); let d = a - last; if (d > 180) d -= 360; if (d < -180) d += 360; last = a; acc += d; while (acc >= 18) { step(1); acc -= 18; } while (acc <= -18) { step(-1); acc += 18; } });
+    el.addEventListener("pointerup", () => { last = null; });
+    el.addEventListener("wheel", e => { e.preventDefault(); step(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+    el.addEventListener("keydown", e => { if (e.key === "ArrowUp" || e.key === "ArrowRight") { e.preventDefault(); step(1); } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") { e.preventDefault(); step(-1); } });
+  }
+  makeDial($("dialMhz"), stepMhz); makeDial($("dialKhz"), stepKhz);
+  $("mhzUp").addEventListener("click", () => stepMhz(1)); $("mhzDn").addEventListener("click", () => stepMhz(-1));
+  $("khzUp").addEventListener("click", () => stepKhz(1)); $("khzDn").addEventListener("click", () => stepKhz(-1));
+  $("rcv").addEventListener("click", () => { rcv = !rcv; if (rcv) audio(); atisKey = null; paintCom2(); sys(rcv ? "COM2 receiver on." : "COM2 receiver off."); });
+  paintCom2();
+  let atisListKey = "";
+  function updateAtis(s) {
+    ctl.useMetar = metarOn();
+    ctl.atisRange = staticWx() ? 1e9 : ATIS_NM;
+    if (nn(s.lat)) autoAtis(s);
+    // follow the sim when its COM2 changes (the pilot turned the knob in the cockpit)
+    const simC2 = nn(s.com2_hz) && s.com2_hz > 0 ? s.com2_hz / 100 : null;
+    if (simC2 !== lastSimC2) { lastSimC2 = simC2; if (simC2 !== null && (com2 === null || Math.abs(simC2 - com2) > 0.006)) { com2 = simC2; atisKey = null; paintCom2(); } }
+    // stations offered as quick-tune buttons
+    const list = ctl.atisAirports(s, 5), lk = list.map(x => x.ap.icao).join(",") + staticWx();
+    if (lk !== atisListKey) {
+      atisListKey = lk; const box = $("atisList"); box.textContent = "";
+      $("atisListHead").textContent = list.length ? "ATIS stations " + (staticWx() ? "nearest first" : "within " + ATIS_NM + " NM") + " (tap to tune COM2)" : "No ATIS station within " + ATIS_NM + " NM";
+      for (const x of list) {
+        const info = ctl.atisInfo(s, x.ap), b = document.createElement("button"); b.type = "button";
+        b.innerHTML = "<span></span><span class=\"f\"></span>"; b.firstChild.textContent = x.ap.icao + " " + x.ap.name + ", " + x.dist_nm + " NM"; b.lastChild.textContent = info.freq_mhz;
+        b.addEventListener("click", () => setCom2(parseFloat(info.freq_mhz))); box.appendChild(b);
+      }
+    }
+    // play the ATIS on the tuned frequency, once per tuning and again when the letter changes
+    const hit = rcv && com2 !== null ? ctl.atisByFreq(s, com2) : null, st = $("c2state");
+    if (!rcv) st.textContent = "receiver off";
+    else if (hit) st.textContent = shortName(hit) + " ATIS";
+    else st.textContent = com2 === null ? "dial a frequency" : "no ATIS on this frequency";
+    if (hit) {
+      const info = ctl.atisInfo(s, hit), key = hit.icao + info.letter;
+      if (key !== atisKey) { atisKey = key; const ev = ctl.atisEvent(s, hit); enqueue(() => deliver(ev)); }
+    } else atisKey = null;
+  }
+
+  function refresh(s) {
+    mapTick(s);
+    $("phase").textContent = ctl.phase || "waiting for data";
+    const sp = ctl.speaker();
+    $("who").textContent = sp ? `${sp.name}  ${sp.freq_mhz}` : "none";
+    $("whoName").textContent = sp ? sp.name : "No controller";
+    $("freqBig").textContent = sp ? sp.freq_mhz : "---.---";
+    $("whoSub").textContent = sp ? (ctl.phase ? "Phase: " + ctl.phase.replace("_", " ").toLowerCase() : "") : "Waiting for data from the sim";
+    const c1 = nn(s.com1_hz) ? s.com1_hz / 100 : null, tb = $("tuneBadge");
+    if (!sp || c1 === null) { tb.textContent = "-"; tb.className = "badge"; }
+    else if (Math.abs(c1 - parseFloat(sp.freq_mhz)) < 0.006) { tb.textContent = "COM1 on frequency"; tb.className = "badge ok"; }
+    else { tb.textContent = "Tune COM1 to " + sp.freq_mhz; tb.className = "badge warn"; }
+    $("com1").textContent = nn(s.com1_hz) ? (s.com1_hz / 100).toFixed(3) : "unknown";
+    renderButtons(s);
+    updateAtis(s);
+    // retune only after the outgoing controller has said "contact ... on ..."
+    if ($("autotune").checked && sp && link && link.setCom1 && pendingHandoffs === 0) {
+      const key = sp.icao + sp.name + sp.freq_mhz;
+      if (key !== tuneKey) {
+        tuneKey = key;
+        link.setCom1(parseFloat(sp.freq_mhz))
+          .then(ok => sys(ok ? `COM1 tuned to ${sp.freq_mhz} (${sp.name}).` : `Could not auto-tune COM1. Please tune ${sp.freq_mhz} yourself.`))
+          .catch(() => sys(`Could not auto-tune COM1 (the browser or X-Plane refused). Please tune ${sp.freq_mhz} yourself.`));
+      }
+    }
+  }
 
 
-def get_metar(icao):
-    """Return (raw, source, None) or (None, None, why)."""
-    icao = icao.upper()
-    with _lock:
-        hit = _cache.get(icao)
-    if hit and time.time() - hit[0] < CACHE_S:
-        return hit[1], hit[2] + " (cached)", None
-    why = []
-    sources = [
-        ("aviationweather.gov", "https://aviationweather.gov/api/data/metar?ids=%s&format=raw" % icao),
-        ("NOAA tgftp", "https://tgftp.nws.noaa.gov/data/observations/metar/stations/%s.TXT" % icao),
-    ]
-    for name, url in sources:
-        text, err = http_get(url)
-        if err:
-            why.append("%s: %s" % (name, err))
-            continue
-        m = METAR_RE.search(text or "")
-        if m:
-            raw = m.group(0).strip()
-            with _lock:
-                _cache[icao] = (time.time(), raw, name)
-            return raw, name, None
-        why.append("%s: no METAR in the reply" % name)
-    return None, None, "; ".join(why)
+  // ---- map and altitude profile (plain 2D canvas, no tiles, works offline)
+  const mapC = $("map"), profC = $("prof");
+  let trail = [], trailLink = null, lastDraw = 0, autoFit = true, mv = { lat0: 0, lon0: 0, k: 3 };   // k = device px per NM
+  const COS = lat => Math.cos(lat * Math.PI / 180);
+  function sizeCanvas(c) { const r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1, w = Math.max(10, Math.round(r.width * d)), h = Math.max(10, Math.round(r.height * d)); if (c.width !== w || c.height !== h) { c.width = w; c.height = h; } return d; }
+  const toXY = (lat, lon, W, H) => [W / 2 + (lon - mv.lon0) * 60 * COS(mv.lat0) * mv.k, H / 2 - (lat - mv.lat0) * 60 * mv.k];
+  const toLL = (x, y, W, H) => [mv.lat0 - (y - H / 2) / (60 * mv.k), mv.lon0 + (x - W / 2) / (60 * COS(mv.lat0) * mv.k)];
+  function mapPoints() {
+    const pts = [], s = link && link.latest ? link.latest() : null;
+    if (s && nn(s.lat)) pts.push([s.lat, s.lon]);
+    if (ctl && ctl.dest) pts.push([ctl.dest.lat, ctl.dest.lon]);
+    const o = ctl && (ctl.origin || (link && link.originIcao && ctl.db.get(link.originIcao))); if (o) pts.push([o.lat, o.lon]);
+    return pts;
+  }
+  function fitView() {
+    const pts = mapPoints(); if (!pts.length) return;
+    const W = mapC.width, H = mapC.height, d = window.devicePixelRatio || 1;
+    const la = pts.map(p => p[0]), lo = pts.map(p => p[1]);
+    const lat0 = (Math.min(...la) + Math.max(...la)) / 2, lon0 = (Math.min(...lo) + Math.max(...lo)) / 2;
+    const sx = Math.max(8, (Math.max(...lo) - Math.min(...lo)) * 60 * COS(lat0)), sy = Math.max(8, (Math.max(...la) - Math.min(...la)) * 60);
+    mv = { lat0, lon0, k: Math.min(W / (sx * 1.35), H / (sy * 1.35), 60 * d) };
+  }
+  function drawMap() {
+    const d = sizeCanvas(mapC), W = mapC.width, H = mapC.height, g = mapC.getContext("2d");
+    if (autoFit) fitView();
+    g.fillStyle = "#0e0a1c"; g.fillRect(0, 0, W, H);
+    if (!ctl) { g.fillStyle = "#a095c4"; g.font = 13 * d + "px sans-serif"; g.fillText("Start a demo or connect to see the map.", 14 * d, 28 * d); return; }
+    const [latT, lonL] = toLL(0, 0, W, H), [latB, lonR] = toLL(W, H, W, H), kc = mv.k / d;   // kc = CSS px per NM
+    g.lineWidth = d; g.font = 11 * d + "px sans-serif";
+    // scale bar
+    const nice = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500].find(n => n * mv.k >= 60 * d) || 500;
+    g.strokeStyle = g.fillStyle = "#a095c4"; g.beginPath(); g.moveTo(12 * d, H - 14 * d); g.lineTo(12 * d + nice * mv.k, H - 14 * d); g.stroke(); g.fillText(nice + " NM", 12 * d, H - 20 * d);
+    // airports in view
+    let drawn = 0; const labelAll = kc >= 1.2;
+    for (const a of ctl.db.airports.values()) {
+      if (a.lat > latT || a.lat < latB || a.lon < lonL || a.lon > lonR) continue;
+      const major = "tower" in a.freqs || "approach" in a.freqs || "atis" in a.freqs;
+      if (!major && kc < 0.35) continue;
+      if (++drawn > 400) break;
+      const [x, y] = toXY(a.lat, a.lon, W, H);
+      if (kc >= 8) { g.strokeStyle = "#5b4d8a"; g.lineWidth = 2 * d; for (const r of a.runways) { if (r.ident > r.other) continue; const o = a.runways.find(q => q.ident === r.other); if (!o) continue; const p = toXY(r.lat, r.lon, W, H), q = toXY(o.lat, o.lon, W, H); g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke(); } g.lineWidth = d; }
+      g.fillStyle = major ? "#b8aee0" : "#6c5fa0"; g.beginPath(); g.arc(x, y, (major ? 3 : 2) * d, 0, 7); g.fill();
+      if (major && labelAll || (major && drawn < 25)) { g.fillStyle = "#cfc6f0"; g.fillText(a.icao, x + 6 * d, y - 4 * d); }
+    }
+    // route line origin -> destination
+    const o = ctl.origin || (link && link.originIcao && ctl.db.get(link.originIcao));
+    if (o && ctl.dest) { const p = toXY(o.lat, o.lon, W, H), q = toXY(ctl.dest.lat, ctl.dest.lon, W, H); g.strokeStyle = "rgba(183,156,255,.45)"; g.setLineDash([6 * d, 6 * d]); g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke(); g.setLineDash([]); }
+    if (ctl.dest) { const [x, y] = toXY(ctl.dest.lat, ctl.dest.lon, W, H); g.strokeStyle = "#f0b65a"; g.lineWidth = 2 * d; g.beginPath(); g.arc(x, y, 7 * d, 0, 7); g.stroke(); g.lineWidth = d; }
+    // trail and aircraft
+    if (trail.length > 1) { g.strokeStyle = "#b79cff"; g.lineWidth = 2 * d; g.beginPath(); trail.forEach((p, i) => { const [x, y] = toXY(p[0], p[1], W, H); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke(); g.lineWidth = d; }
+    const s = link && link.latest ? link.latest() : null;
+    if (s && nn(s.lat)) {
+      const [x, y] = toXY(s.lat, s.lon, W, H), h = (nn(s.true_psi) ? s.true_psi : 0) * Math.PI / 180;
+      g.save(); g.translate(x, y); g.rotate(h); g.fillStyle = "#ffffff"; g.strokeStyle = "#8b5cf6"; g.lineWidth = 1.5 * d;
+      g.beginPath(); g.moveTo(0, -9 * d); g.lineTo(6 * d, 7 * d); g.lineTo(0, 3.5 * d); g.lineTo(-6 * d, 7 * d); g.closePath(); g.fill(); g.stroke(); g.restore();
+    }
+  }
+  function drawProfile() {
+    const d = sizeCanvas(profC), W = profC.width, H = profC.height, g = profC.getContext("2d");
+    g.fillStyle = "#0e0a1c"; g.fillRect(0, 0, W, H); g.font = 10 * d + "px sans-serif";
+    const note = $("profNote");
+    if (!ctl || !ctl.dest) { note.textContent = ""; g.fillStyle = "#a095c4"; g.fillText("Needs a destination to draw the profile.", 12 * d, 24 * d); return; }
+    const pts = trail.filter(p => p[3] !== null);
+    const elev = ctl.dest.elev_ft || 0, maxD = Math.max(20, Math.ceil(Math.max(0, ...pts.map(p => p[3])) / 10) * 10 * 1.0), maxA = Math.max(4000 + elev, Math.ceil(Math.max(0, ...pts.map(p => p[2])) * 1.08 / 1000) * 1000);
+    const L = 36 * d, R = 8 * d, T = 8 * d, B = 16 * d, X = nm => L + (1 - nm / maxD) * (W - L - R), Y = ft => H - B - ft / maxA * (H - T - B);
+    g.strokeStyle = "#2d2349"; g.fillStyle = "#a095c4"; g.lineWidth = d;
+    const stepA = maxA > 20000 ? 10000 : maxA > 8000 ? 5000 : 2000;
+    for (let a = 0; a <= maxA; a += stepA) { g.beginPath(); g.moveTo(L, Y(a)); g.lineTo(W - R, Y(a)); g.stroke(); g.fillText(a >= 10000 ? "FL" + String(a / 100).padStart(3, "0") : String(a), 2 * d, Y(a) + 3 * d); }
+    const stepD = maxD > 200 ? 100 : maxD > 80 ? 50 : 20;
+    for (let n = 0; n <= maxD; n += stepD) g.fillText(String(n), X(n) - 6 * d, H - 3 * d);
+    g.fillText("NM to " + ctl.dest.icao, W - R - 64 * d, T + 8 * d);
+    g.fillStyle = "rgba(139,92,246,.18)"; g.fillRect(L, Y(elev), W - L - R, H - B - Y(elev));            // ground
+    // ideal path: 3 degrees inside the 10 NM final fix at 3000 ft AGL, 3 NM per 1000 ft outside it
+    g.strokeStyle = "#f0b65a"; g.setLineDash([5 * d, 4 * d]); g.beginPath(); let first = true;
+    for (let n = 0; n <= maxD; n += 0.5) { const ft = elev + (n <= 10 ? n * 318 : 3000 + (n - 10) * 333); if (ft > maxA) break; if (first) { g.moveTo(X(n), Y(ft)); first = false; } else g.lineTo(X(n), Y(ft)); }
+    g.stroke(); g.setLineDash([]);
+    if (pts.length > 1) { g.strokeStyle = "#b79cff"; g.lineWidth = 2 * d; g.beginPath(); pts.forEach((p, i) => { const x = X(p[3]), y = Y(p[2]); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke(); }
+    const last = pts[pts.length - 1];
+    if (last) { g.fillStyle = "#fff"; g.beginPath(); g.arc(X(last[3]), Y(last[2]), 4 * d, 0, 7); g.fill(); note.textContent = Math.round(last[2] / 100) * 100 + " ft, " + Math.round(last[3]) + " NM out"; }
+    else note.textContent = "";
+  }
+  function mapTick(s, force) {
+    if (link !== trailLink) { trailLink = link; trail = []; autoFit = true; }
+    if (s && nn(s.lat) && nn(s.elev_m)) {
+      const alt = s.elev_m * 3.28084, dd = ctl && ctl.dest ? haversineNm(s.lat, s.lon, ctl.dest.lat, ctl.dest.lon) : null, lp = trail[trail.length - 1];
+      if (!lp || haversineNm(lp[0], lp[1], s.lat, s.lon) > 0.03 || Math.abs(lp[2] - alt) > 50) { trail.push([s.lat, s.lon, alt, dd]); if (trail.length > 6000) trail = trail.filter((_, i) => i % 2 === 0); }
+    }
+    const now = Date.now(); if (!force && now - lastDraw < 250) return; lastDraw = now;
+    try { drawMap(); drawProfile(); } catch (e) { /* drawing must never break the ATC */ }
+  }
+  function zoomAt(f, cx, cy) {
+    autoFit = false; const W = mapC.width, H = mapC.height, [la, lo] = toLL(cx, cy, W, H);
+    mv.k = Math.max(0.05, Math.min(mv.k * f, 400)); const [la2, lo2] = toLL(cx, cy, W, H); mv.lat0 += la - la2; mv.lon0 += lo - lo2; mapTick(link && link.latest ? link.latest() : null, true);
+  }
+  mapC.addEventListener("wheel", e => { e.preventDefault(); const r = mapC.getBoundingClientRect(), d = mapC.width / r.width; zoomAt(e.deltaY < 0 ? 1.25 : 0.8, (e.clientX - r.left) * d, (e.clientY - r.top) * d); }, { passive: false });
+  let drag = null;
+  mapC.addEventListener("pointerdown", e => { drag = [e.clientX, e.clientY]; mapC.setPointerCapture(e.pointerId); });
+  mapC.addEventListener("pointermove", e => { if (!drag) return; const r = mapC.getBoundingClientRect(), d = mapC.width / r.width, dx = (e.clientX - drag[0]) * d, dy = (e.clientY - drag[1]) * d; drag = [e.clientX, e.clientY]; autoFit = false; mv.lon0 -= dx / (60 * COS(mv.lat0) * mv.k); mv.lat0 += dy / (60 * mv.k); mapTick(link && link.latest ? link.latest() : null, true); });
+  mapC.addEventListener("pointerup", () => { drag = null; });
+  mapC.addEventListener("dblclick", () => { autoFit = true; mapTick(link && link.latest ? link.latest() : null, true); });
+  $("mapIn").addEventListener("click", () => zoomAt(1.4, mapC.width / 2, mapC.height / 2));
+  $("mapOut").addEventListener("click", () => zoomAt(1 / 1.4, mapC.width / 2, mapC.height / 2));
+  $("mapFit").addEventListener("click", () => { autoFit = true; mapTick(link && link.latest ? link.latest() : null, true); });
+  window.addEventListener("resize", () => mapTick(link && link.latest ? link.latest() : null, true));
+
+  const GROUND = [["Request startup", "request startup"], ["IFR clearance", "request IFR clearance"], ["VFR clearance", "request VFR clearance"],
+                  ["Request taxi", "request taxi"], ["Ready for departure", "ready for departure"]];
+  const TAXI_GATE = [["Request taxi to gate", "request taxi to the gate"]];
+  const AIR = [["Request vectors / descent", "request vectors and descent"], ["Request approach", "request approach"]];
+  const CALLS = { "request approach": "request approach.", "request vectors and descent": "request vectors and descent." };
+  const ALWAYS = [["Weather", "what are the winds, gusts, storms and visibility"], ["NOTAMs", "any notams"]];
+  function drawOptions(sections) {
+    const box = $("buttons"); box.textContent = "";
+    let n = 0;
+    for (const sec of sections) {
+      if (!sec.items.length) continue;
+      const h = document.createElement("li"); h.className = "sep"; h.textContent = sec.title; box.appendChild(h);
+      for (const [label, msg, shown, action] of sec.items) {
+        const li = document.createElement("li"), b = document.createElement("button"), num = document.createElement("span"), txt = document.createElement("span");
+        b.type = "button"; b.className = "opt"; num.className = "num"; txt.textContent = label;
+        if (n < 9) { n++; num.textContent = String(n); b.dataset.n = String(n); } else num.classList.add("none");
+        const say = shown || (CALLS[msg] ? (() => { const sp = ctl.speaker(); return (sp ? sp.name + ", " : "") + CALLS[msg]; }) : label);
+        b.addEventListener("click", () => (action ? action() : send(msg, say)));
+        b.append(num, txt); li.appendChild(b); box.appendChild(li);
+      }
+    }
+  }
+  function openSetup(tab) { const d = $("setup"); d.open = true; $("setupToggle").setAttribute("aria-expanded", "true"); showTab(tab); d.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  function renderWelcome() {
+    buttonKey = "welcome";
+    drawOptions([{ title: "Get started", items: [
+      ["Try a demo flight (no sim needed)", "", null, () => openSetup("Demo")],
+      ["Connect to X-Plane 12", "", null, () => openSetup("Live")] ] }]);
+  }
+  function renderButtons(s) {
+    const ground = ["PARKED", "TAXI", "TAXI_IN"].includes(ctl.phase);
+    const arrived = ground && ctl.phase !== "PARKED" && ctl.arrived();   // parked means a fresh start: startup, clearance, taxi again
+    const near = (!ground && s && ["CLIMB", "CRUISE", "DESCENT", "ARRIVAL"].includes(ctl.phase)) ? ctl.nearbyAirports(s) : [];
+    const atThr = ground && !arrived && !!s && ctl.atThreshold(s);
+    const key = (arrived ? "r" : ground ? "g" + (atThr ? "t" : "") : "a") + (ctl.dest ? "d" : "n") + near.map(a => a.icao + Math.round(a.dist_nm / 10)).join(",");
+    if (key === buttonKey) return;
+    buttonKey = key;
+    const call = text => () => { const sp = ctl.speaker(); return (sp ? sp.name + ", " : "") + text; };    // spoken the way a pilot would call it
+    const landBtns = near.map(a => ["Land at " + a.name + " (" + a.icao + "), " + a.dist_nm + " NM", "request landing at " + a.icao, call("request landing at " + a.name + ".")]);
+    const sections = [];
+    if (arrived) sections.push({ title: "Requests", items: TAXI_GATE });
+    else if (ground) sections.push({ title: "Requests", items: atThr ? GROUND : GROUND.filter(x => x[1] !== "ready for departure") });
+    else { if (ctl.dest) sections.push({ title: "Requests", items: AIR }); sections.push({ title: "Change landing airport", items: landBtns }); }
+    sections.push({ title: "Information", items: ALWAYS });
+    drawOptions(sections);
+  }
 
 
-# The page only asks the relay if it has a source for it. Newer pages already do; this adds it to older copies.
-RELAY_SOURCE = 'l.push({ name: "relay", url: icao => "/metar/" + icao });\n    '
-ANCHOR = 'l.push({ name: "aviationweather.gov"'
+  // ---- real METAR (optional): tries each source in turn, caches 10 minutes, falls back to sim weather
+  const METAR_SOURCES = () => {
+    const l = [], u = $("metarUrl").value.trim();
+    if (u) l.push({ name: "your URL", url: icao => u.replace(/\{ICAO\}/gi, icao) });
+    l.push({ name: "aviationweather.gov", url: icao => "https://aviationweather.gov/api/data/metar?ids=" + icao + "&format=json" });
+    l.push({ name: "NOAA tgftp", url: icao => "https://tgftp.nws.noaa.gov/data/observations/metar/stations/" + icao + ".TXT" });
+    return l;
+  };
+  async function tryMetar(src, icao) {
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 7000);
+    try {
+      const r = await fetch(src.url(icao), { cache: "no-store", signal: ac.signal });
+      if (!r.ok) return { ok: false, why: "HTTP " + r.status };
+      const raw = extractMetar(await r.text());
+      return raw ? { ok: true, raw } : { ok: false, why: "no METAR in the reply" };
+    } catch (e) { return { ok: false, why: e.name === "AbortError" ? "timed out" : "blocked or unreachable (likely CORS or no internet)" }; }
+    finally { clearTimeout(to); }
+  }
+  const metarFail = {}, metarBusy = {}; let metarSrcUsed = null;
+  async function fetchMetar(icao, s) {
+    const have = ctl.metars[icao];
+    if (have && Date.now() - have.t < 600000) return have;
+    if (metarFail[icao] && Date.now() - metarFail[icao] < 300000) return null;
+    if (metarBusy[icao]) return metarBusy[icao];
+    metarBusy[icao] = (async () => {
+      for (const src of METAR_SOURCES()) {
+        const r = await tryMetar(src, icao);
+        if (r.ok) { ctl.metars[icao] = { w: parseMetar(r.raw, 0), raw: r.raw, t: Date.now() }; metarSrcUsed = src.name; $("metarStatus").textContent = "METAR source working: " + src.name + " (" + icao + ": " + r.raw + ")"; return ctl.metars[icao]; }
+      }
+      metarFail[icao] = Date.now(); return null;
+    })();
+    try { return await metarBusy[icao]; } finally { delete metarBusy[icao]; }
+  }
+  const metarOn = () => $("wxsrc").value === "metar";
+  async function wxTick() {
+    if (!ctl || !link) return;
+    ctl.useMetar = metarOn();
+    if (!ctl.useMetar) return;
+    const s = link.latest(); if (!s || !nn(s.lat)) return;
+    const set = new Map();
+    const add = a => { if (a && a.icao) set.set(a.icao, a); };
+    ctl.atisAirports(s).forEach(x => add(x.ap)); add(ctl.dest); add(ctl.origin);
+    const n1 = ctl.db.nearest(s.lat, s.lon, 1, 6); if (n1.length) add(n1[0][1]);
+    ctl.nearbyAirports(s).forEach(x => add(ctl.db.get(x.icao)));
+    const todo = [...set.keys()].slice(0, 8);
+    await Promise.all(todo.map(i => fetchMetar(i, s)));
+    if (!todo.length) return;
+    if (!metarSrcUsed && todo.every(i => !ctl.metars[i])) $("metarStatus").textContent = "No METAR source answered, using sim weather. Press Test METAR fetch for details.";
+  }
+  setInterval(() => { wxTick().catch(() => {}); }, 20000);
+  $("wxsrc").addEventListener("change", () => { try { localStorage.setItem("patc_wxsrc", $("wxsrc").value); } catch (e) { /* ignore */ } if (ctl) ctl.useMetar = metarOn(); sys(metarOn() ? "Weather source: real METAR (falls back to sim weather if a fetch fails)." : "Weather source: sim weather at the aircraft."); wxTick().catch(() => {}); });
+  try { const v = localStorage.getItem("patc_wxsrc"); if (v === "metar" || v === "sim") $("wxsrc").value = v; } catch (e) { /* ignore */ }
+  $("metarTest").addEventListener("click", async () => {
+    const out = $("metarStatus"); out.textContent = "Testing KJFK on each source...";
+    const lines = [];
+    for (const src of METAR_SOURCES()) { const r = await tryMetar(src, "KJFK"); lines.push(src.name + ": " + (r.ok ? "WORKS  " + r.raw : "failed, " + r.why)); out.textContent = "Testing...\n" + lines.join("\n"); }
+    out.style.whiteSpace = "pre-wrap"; out.textContent = lines.join("\n");
+  });
 
+  function send(msg, shown) {
+    if (!link || !ctl) { sys("Connect to X-Plane or start a demo first."); return; }
+    line("pilot", "You", typeof shown === "function" ? shown() : (shown || msg));
+    const go = () => { const ev = ctl.handlePilot(msg, link.latest()); enqueue(() => deliver(ev)); };
+    ctl.useMetar = metarOn();
+    const s0 = link.latest(), ap = ctl.useMetar && nn(s0.lat) ? ctl.findAirport(msg.toLowerCase(), s0) : null;
+    if (ap && !ctl.metars[ap.icao]) fetchMetar(ap.icao, s0).then(go, go); else go();
+  }
 
-def patch_page(html):
-    if '"/metar/"' not in html and ANCHOR in html:
-        html = html.replace(ANCHOR, RELAY_SOURCE + ANCHOR, 1)
-    return html
+  // ---- wiring
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || !/^[1-9]$/.test(e.key)) return;
+    const t = e.target && e.target.tagName; if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
+    const b = document.querySelector('#buttons button[data-n="' + e.key + '"]'); if (b) { e.preventDefault(); b.click(); }
+  });
+  $("setupToggle").addEventListener("click", () => { const d = $("setup"); d.open = !d.open; $("setupToggle").setAttribute("aria-expanded", String(d.open)); });
+  $("setup").addEventListener("toggle", () => $("setupToggle").setAttribute("aria-expanded", String($("setup").open)));
+  $("voice").addEventListener("change", () => { try { localStorage.setItem("patc_voice", $("voice").value); } catch (e) { /* ignore */ } });
+  $("voiceTest").addEventListener("click", () => { audio(); const was = $("speak").checked; $("speak").checked = true; speak("West Tower, runway 24, wind 240 at 12 knots, cleared for takeoff."); $("speak").checked = was; });
+  $("speak").addEventListener("change", () => { if ($("speak").checked) audio(); });
+  function showTab(name) {
+    for (const t of ["Live", "Demo"]) {
+      const on = t === name;
+      $("tab" + t).setAttribute("aria-selected", on ? "true" : "false");
+      $("panel" + t).hidden = !on;
+    }
+  }
+  for (const r of document.querySelectorAll("input[name=rules]")) r.addEventListener("change", syncRules);
+  $("scenery").addEventListener("change", () => {
+    try { localStorage.setItem("patc_scenery", $("scenery").value); } catch (e) { /* ignore */ }
+    demoDb = new AirportDB(); demoDb.loadText(sceneryText(), []); $("demoFrom").textContent = ""; $("demoTo").textContent = "";
+    fillDemoAirports(); syncRules();
+  });
+  $("demoFrom").addEventListener("change", () => { fillDemoAirports(); syncRules(); });
+  $("demoTo").addEventListener("change", syncRules);
+  fillDemoAirports(); syncRules();
+  $("tabLive").addEventListener("click", () => showTab("Live"));
+  $("tabDemo").addEventListener("click", () => showTab("Demo"));
+  $("sendform").addEventListener("submit", e => { e.preventDefault(); const t = $("msg").value.trim(); if (t) { send(t); $("msg").value = ""; } });
+  $("fms").addEventListener("change", async e => {
+    const f = e.target.files[0]; if (!f) return;
+    plan = parseFms(await f.text());
+    if (ctl) applyPlan(); else if (!db.airports.size) sys("Flight plan read. Load your airports (step 1) and it will be applied.");
+    else { ensureController(); }
+  });
+  $("files").addEventListener("change", e => loadFiles(Array.from(e.target.files)));
+  $("useSample").addEventListener("click", () => { useSample(); ensureController(); });
+  $("connect").addEventListener("click", connect);
+  $("demoFull").addEventListener("click", () => startDemo("full"));
+  $("demoArrival").addEventListener("click", () => startDemo("arrival"));
+  $("pause").addEventListener("click", () => { paused = !paused; $("pause").textContent = paused ? "Resume" : "Pause"; });
+  $("demoParked").addEventListener("click", () => startDemo("parked"));
+  $("check").addEventListener("click", () => {
+    $("report").textContent = link && link.reportText ? link.reportText() : "Connect to X-Plane 12 first.";
+    $("report").hidden = false;
+  });
+  $("setDest").addEventListener("click", () => {
+    if (!ensureController()) return;
+    const d = $("dest").value.trim(), r = $("rwy").value.trim();
+    if (d) sys(ctl.setDest(d) ? "Destination set to " + d.toUpperCase() + "." : "Unknown airport " + d + ".");
+    if (r) sys(ctl.setDestRunway(r) ? "Landing runway set to " + r.toUpperCase() + "." : "No runway " + r + " at the destination.");
+    buttonKey = "";
+  });
+  $("apikey").addEventListener("input", () => {
+    phraser.apiKey = $("apikey").value.trim();
+    try { if ($("remember").checked) localStorage.setItem("patc_key", phraser.apiKey); } catch (e) { /* storage may be blocked */ }
+    $("claudeState").textContent = phraser.live ? "Claude wording on" : "Template wording (no key)";
+  });
+  $("remember").addEventListener("change", () => { try { if (!$("remember").checked) localStorage.removeItem("patc_key"); else localStorage.setItem("patc_key", phraser.apiKey); } catch (e) { /* ignore */ } });
+  $("model").addEventListener("change", () => { phraser.model = $("model").value.trim() || phraser.model; });
+  try { const k = localStorage.getItem("patc_key"); if (k) { $("apikey").value = k; $("remember").checked = true; phraser.apiKey = k; $("claudeState").textContent = "Claude wording on"; } } catch (e) { /* ignore */ }
+  window.__patc = { send, get ctl() { return ctl; } };   // handy for tests
+  sys("Welcome. Practice only, never for real navigation. Pick an option below to try a demo flight or connect to X-Plane 12.");
+  renderWelcome();
+})();
 
-
-def load_page():
-    for name in LOCAL_NAMES:
-        path = os.path.join(HERE, name)
-        if os.path.isfile(path):
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                html = f.read()
-            if PAGE_MARKER in html:
-                return patch_page(html), "file " + name
-    for url in PAGE_URLS:
-        html, err = http_get(url)
-        if html and PAGE_MARKER in html:
-            return patch_page(html), url
-    return None, None
-
-
-class Handler(BaseHTTPRequestHandler):
-    server_version = "PseudoATCRelay/1.0"
-
-    def log_message(self, fmt, *args):
-        sys.stdout.write("  %s %s\n" % (self.address_string(), fmt % args))
-
-    def send(self, code, body, ctype="text/plain; charset=utf-8"):
-        data = body.encode("utf-8") if isinstance(body, str) else body
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")   # lets a page hosted elsewhere (e.g. GitHub) call this relay too
-        self.end_headers()
-        self.wfile.write(data)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-
-    def do_GET(self):
-        path = self.path.split("?", 1)[0]
-        if path in ("/", "/index.html", "/pseudo_atc.html"):
-            if _page["html"] is None:
-                _page["html"], _page["src"] = load_page()
-            if _page["html"] is None:
-                self.send(404, "Could not find the Pseudo-ATC page. Put pseudo_atc.html in the same folder as relay.py, "
-                               "or check the PAGE_URLS at the top of relay.py and your internet connection.")
-                return
-            self.send(200, _page["html"], "text/html; charset=utf-8")
-            return
-        m = re.match(r"^/metar/([^/]+)$", path)
-        if m:
-            icao = m.group(1)
-            if not ICAO_RE.match(icao):          # only 4-character airport codes, nothing else is ever fetched
-                self.send(400, "bad airport code")
-                return
-            raw, src, why = get_metar(icao)
-            if raw:
-                self.send(200, raw + "\n")
-            else:
-                self.send(502, "no METAR for %s (%s)" % (icao.upper(), why))
-            return
-        if path == "/status":
-            self.send(200, "relay ok; page from %s; %d METARs cached\n" % (_page["src"] or "not loaded yet", len(_cache)))
-            return
-        self.send(404, "not found")
-
-
-def lan_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("10.255.255.255", 1))     # no packet is sent; this just picks the local network address
-        return s.getsockname()[0]
-    except Exception:
-        return None
-    finally:
-        s.close()
-
-
-def main():
-    html, src = load_page()
-    _page["html"], _page["src"] = html, src
-    print("Pseudo-ATC relay")
-    print("  page: %s" % (("loaded from " + src) if html else "NOT FOUND (put pseudo_atc.html next to this script)"))
-    test, how, why = get_metar("KSFO")
-    print("  weather: %s" % (("OK via %s (KSFO: %s)" % (how, test)) if test else "could not fetch a test METAR (" + str(why) + ")"))
-    try:
-        srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    except OSError as e:
-        print("\nCould not start on port %d (%s). Try another: python relay.py 9000" % (PORT, e))
-        return
-    ip = lan_ip()
-    print("\nOpen this on THIS device:       http://localhost:%d" % PORT)
-    if ip:
-        print("Open this from another device:  http://%s:%d   (same Wi-Fi)" % (ip, PORT))
-    print("\nLeave this running. Press Ctrl+C to stop.\n")
-    try:
-        srv.serve_forever()
-    except KeyboardInterrupt:
-        print("\nStopped.")
-
-
-main()
+</script>
+</body>
+</html>
